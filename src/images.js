@@ -1,37 +1,28 @@
 // リポジトリ img/ に置かれた画像の自動読み込み
-// CLAUDE.md の命名規則どおり png → jpg の順に探し、見つかった URL を返す。
+// ビルド時に import.meta.glob が img/ 以下を走査して一覧を自動生成する。
+// 画像を置いてビルド(=mainへのpush)するだけで反映され、手動の一覧更新は不要。
+// 存在しないパスへ探索リクエストを出さないので404も発生しない。
+// 同名の png と jpg が両方あれば png 優先(CLAUDE.md の規則どおり)。
 // 無いスロットは null(呼び出し側で 画廊 → 絵文字 にフォールバックする)。
 
 import { SPECIMENS } from "./data.js";
 
 export const PORTRAIT_IDS = ["gakusei", "gakusha", "koujika", "kifujin", "collector"];
 
-function probe(url) {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => resolve(url);
-    img.onerror = () => resolve(null);
-    img.src = url;
-  });
-}
-
-async function findImage(pathBase) {
-  return (await probe(`${pathBase}.png`)) || (await probe(`${pathBase}.jpg`));
-}
+const FILES = import.meta.glob("/img/**/*.{png,jpg}", { eager: true, query: "?url", import: "default" });
+const urlFor = (base) => FILES[`${base}.png`] || FILES[`${base}.jpg`] || null;
 
 // 戻り値: { shop: url|null, portraits: {id: url}, specimens: {id: url} }
+// (呼び出し側の形を変えないため async のまま)
 export async function loadFileImages() {
-  const base = import.meta.env.BASE_URL || "./";
-  const jobs = [];
-  const result = { shop: null, portraits: {}, specimens: {} };
-
-  jobs.push(findImage(`${base}img/shop`).then((u) => { result.shop = u; }));
+  const result = { shop: urlFor("/img/shop"), portraits: {}, specimens: {} };
   for (const id of PORTRAIT_IDS) {
-    jobs.push(findImage(`${base}img/portraits/${id}`).then((u) => { if (u) result.portraits[id] = u; }));
+    const u = urlFor(`/img/portraits/${id}`);
+    if (u) result.portraits[id] = u;
   }
   for (const id of Object.keys(SPECIMENS)) {
-    jobs.push(findImage(`${base}img/specimens/${id}`).then((u) => { if (u) result.specimens[id] = u; }));
+    const u = urlFor(`/img/specimens/${id}`);
+    if (u) result.specimens[id] = u;
   }
-  await Promise.all(jobs);
   return result;
 }

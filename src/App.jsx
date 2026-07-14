@@ -389,20 +389,21 @@ export default function BoneAndGlass() {
 
   // ---- 昼 ----
   const craftables = (id) => RECIPES.filter((r) => r.from === id);
-  const doCraft = (r) => {
+  // n=2 は熟練Lv3特典の「2個仕立てる」(1APで2個、素材・資材を2セット消費)
+  const doCraft = (r, n = 1) => {
     if (g.ap <= 0) return flash("今日の作業はもう終わり");
     const p = PROCESSES[r.proc];
     const inv = { ...g.inv }; const spec = { ...g.spec };
-    if (SPECIMENS[r.from]) { spec[r.from] -= 1; if (spec[r.from] <= 0) delete spec[r.from]; }
-    else { inv[r.from] -= 1; if (inv[r.from] <= 0) delete inv[r.from]; }
-    if (p.needs) { inv[p.needs] -= 1; if (inv[p.needs] <= 0) delete inv[p.needs]; }
-    spec[r.to] = (spec[r.to] || 0) + 1;
+    if (SPECIMENS[r.from]) { spec[r.from] -= n; if (spec[r.from] <= 0) delete spec[r.from]; }
+    else { inv[r.from] -= n; if (inv[r.from] <= 0) delete inv[r.from]; }
+    if (p.needs) { inv[p.needs] -= n; if (inv[p.needs] <= 0) delete inv[p.needs]; }
+    spec[r.to] = (spec[r.to] || 0) + n;
     const isNew = !g.known.includes(r.id);
     const known = isNew ? [...g.known, r.id] : g.known;
-    const exp = { ...g.procExp, [r.proc]: (g.procExp[r.proc] || 0) + 1 };
+    const exp = { ...g.procExp, [r.proc]: (g.procExp[r.proc] || 0) + n };
     const lvUp = procLevel(exp[r.proc]) > procLevel(g.procExp[r.proc] || 0);
     const made = SPECIMENS[r.to];
-    const craftLog = [{ text: `${p.name} → ${made.icon} ${made.name}${isNew ? "(新発見!)" : ""}`, isNew }, ...g.craftLog].slice(0, 6);
+    const craftLog = [{ text: `${p.name} → ${made.icon} ${made.name}${n === 2 ? " ×2" : ""}${isNew ? "(新発見!)" : ""}`, isNew }, ...g.craftLog].slice(0, 6);
     setG({ ...g, inv, spec, known, ap: g.ap - 1, craftLog, procExp: exp });
     setSel(null);
     if (isNew) flash(`新しい標本を作り出した — ${made.name}`);
@@ -682,10 +683,13 @@ export default function BoneAndGlass() {
                   const known = r && g.known.includes(r.id);
                   const stocked = r && (!p.needs || (g.inv[p.needs] || 0) > 0);
                   const disabled = !sel || !possible || !lvOk || !stocked || g.ap <= 0;
+                  // Lv3特典: 素材・資材が2セットあれば1APで2個
+                  const fromCount = r ? (SPECIMENS[r.from] ? (g.spec[r.from] || 0) : (g.inv[r.from] || 0)) : 0;
+                  const canDouble = !disabled && lv >= 3 && fromCount >= 2 && (!p.needs || (g.inv[p.needs] || 0) >= 2);
                   return (
-                    <button key={pid} onClick={() => r && lvOk && stocked && doCraft(r)} disabled={disabled}
+                    <div key={pid}
                       style={{
-                        fontFamily: "inherit", textAlign: "left", cursor: disabled ? "default" : "pointer",
+                        textAlign: "left",
                         background: disabled ? "transparent" : C.panelHi,
                         border: `1px solid ${possible && sel ? C.brass : C.line}`,
                         opacity: sel && !possible ? 0.35 : 1,
@@ -693,6 +697,9 @@ export default function BoneAndGlass() {
                       }}>
                       <span style={{ color: possible && sel ? C.brass : C.ivory }}>{p.name}</span>
                       <span style={{ fontSize: 10, color: C.dim, marginLeft: 6 }}>Lv{lv}</span>
+                      {r && (r.minLv || 1) >= 2 && (
+                        <span style={{ fontSize: 10, marginLeft: 6, padding: "0 4px", borderRadius: 3, border: `1px solid ${lvOk ? C.line : C.red}`, color: lvOk ? C.dim : C.red }}>要Lv{r.minLv}</span>
+                      )}
                       {p.needs && <span style={{ fontSize: 11, color: (g.inv[p.needs] || 0) > 0 ? C.glass : C.red, marginLeft: 6 }}>要 {itemIcon(p.needs)}{itemName(p.needs)}(所持{g.inv[p.needs] || 0})</span>}
                       <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>
                         {!sel ? p.desc
@@ -701,7 +708,13 @@ export default function BoneAndGlass() {
                           : known ? `→ ${SPECIMENS[r.to].icon} ${SPECIMENS[r.to].name}(基準 ${round5(basePrice(g, r.to))}G)`
                           : "→ ??? 何ができるかは、やってみないと分からない"}
                       </div>
-                    </button>
+                      {sel && possible && (
+                        <div style={{ display: "flex", gap: 6, marginTop: 7 }}>
+                          <Btn primary={!disabled} disabled={disabled} onClick={() => doCraft(r, 1)} style={{ fontSize: 12, padding: "6px 12px" }}>仕立てる</Btn>
+                          <Btn disabled={!canDouble} onClick={() => doCraft(r, 2)} style={{ fontSize: 12, padding: "6px 12px" }}>2個仕立てる</Btn>
+                        </div>
+                      )}
+                    </div>
                   );
                 })}
               </div>
@@ -959,6 +972,7 @@ export default function BoneAndGlass() {
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
                     {Object.entries(SPECIMENS).map(([id, s]) => {
                       const found = knownSpecs.has(id);
+                      const recipe = found ? RECIPES.find((r) => r.to === id) : null;
                       return (
                         <div key={id} style={{ border: `1px solid ${C.line}`, borderRadius: 5, padding: 8, opacity: found ? 1 : 0.45 }}>
                           <div style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 5 }}>
@@ -967,6 +981,11 @@ export default function BoneAndGlass() {
                           <div style={{ fontSize: 10, color: C.dim, marginTop: 2 }}>
                             {found ? <>{CAT_NAME[s.cat]} · {s.price}G{s.tags.map((t) => <TagChip key={t} t={t} />)}</> : "未発見"}
                           </div>
+                          {recipe && (
+                            <div style={{ fontSize: 10, color: C.dim, marginTop: 2 }}>
+                              仕立て: {PROCESSES[recipe.proc].name}{(recipe.minLv || 1) >= 2 ? ` Lv${recipe.minLv}` : ""}
+                            </div>
+                          )}
                         </div>
                       );
                     })}

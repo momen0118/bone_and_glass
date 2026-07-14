@@ -199,19 +199,29 @@ function simulateNight(g) {
 
   for (let v = 0; v < visitors; v++) {
     const c = weightedPick(pool);
-    // 学生の就職イベント: 累計販売が閾値に達した後の来店を置き換える(購入なし・一度きり)
-    if (c.id === "gakusei" && !graduated && (custBought.gakusei || 0) >= GAKUSEI_GRAD.threshold) {
+    const bought = custBought[c.id] || 0;
+    const slots = shelf.map((id, i) => ({ id, i })).filter((s) => s.id && s.i < g.shelfSize);
+    // 学生の就職イベント: 累計販売が閾値に達した後、棚に商品が1点以上ある夜の来店を置き換える。
+    // 棚で最も表示価格の高い品を予算無視で購入する(一度きり。棚が空の夜は持ち越し)
+    if (c.id === "gakusei" && !graduated && (custBought.gakusei || 0) >= GAKUSEI_GRAD.threshold && slots.length) {
       graduated = true;
-      custBought.gakusei = 0; // 後輩に代替わり
+      let target = slots[0];
+      for (const s of slots) if (priceAt(s.i) > priceAt(target.i)) target = s;
+      const price = priceAt(target.i);
+      const sp = SPECIMENS[target.id];
+      shelf[target.i] = null;
+      gold += price; sold++;
+      soldByCat[sp.cat] = (soldByCat[sp.cat] || 0) + 1;
+      rep += 1 + (sp.tags.includes("rare") ? 1 : 0) + mode.repBonus;
+      custBought.gakusei = 0; // 後輩に代替わり(この購入は数に残さない)
       log.push({
-        t: "misc", cid: "gakusei",
-        line: GAKUSEI_GRAD.line, sub: GAKUSEI_GRAD.sub,
-        text: `学生「${GAKUSEI_GRAD.line}」— ${GAKUSEI_GRAD.sub}`,
+        t: "sale", cid: "gakusei", big: true, grad: true,
+        line: GAKUSEI_GRAD.line, line2: GAKUSEI_GRAD.line2,
+        itemId: target.id, price,
+        text: `学生「${GAKUSEI_GRAD.line}」「${GAKUSEI_GRAD.line2}」— ${sp.icon} ${sp.name}を ${price}G で購入。`,
       });
       continue;
     }
-    const bought = custBought[c.id] || 0;
-    const slots = shelf.map((id, i) => ({ id, i })).filter((s) => s.id && s.i < g.shelfSize);
     if (!slots.length) { log.push({ t: "misc", cid: c.id, text: `${c.name}が覗いたが、棚は空だった。`, line: null }); continue; }
 
     const afford = slots.filter((s) => priceAt(s.i) <= c.budget);
@@ -237,7 +247,7 @@ function simulateNight(g) {
       soldByCat[sp.cat] = (soldByCat[sp.cat] || 0) + 1;
       custBought[c.id] = bought + 1;
       rep += 1 + (sp.tags.includes("rare") ? 1 : 0) + mode.repBonus;
-      const big = price >= 300;
+      const big = price >= 400;
       const line = big ? custLine(c, bought, "big") : custLine(c, bought, "buy");
       log.push({ t: "sale", cid: c.id, big, text: `${c.name}「${line}」— ${sp.icon} ${sp.name}を ${price}G で購入。`, line, itemId: target.id, price });
     } else {
@@ -964,7 +974,10 @@ export default function BoneAndGlass() {
                 <div style={{ fontSize: 11, color: C.dim, fontVariantNumeric: "tabular-nums" }}>{nightView.idx + 1} / {nightCust.length} 組</div>
               </div>
               <div onClick={nightAdvance} style={{ cursor: "pointer" }}>
-                <Panel style={l.big ? { borderColor: "#e0b96a", boxShadow: "0 0 14px rgba(201,161,94,0.15)" } : null}>
+                <Panel style={l.big ? {
+                  borderColor: "#e0b96a", boxShadow: "0 0 14px rgba(201,161,94,0.15)",
+                  ...(l.grad ? { background: "#282013" } : null),
+                } : null}>
                   <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
                     <FramedPortrait cid={l.cid} imgs={imgs} fileImgs={fileImgs} />
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -972,14 +985,14 @@ export default function BoneAndGlass() {
                       <div style={{ fontSize: 13, lineHeight: 1.9, color: l.line ? C.ivory : C.dim }}>
                         {l.line ? `「${l.line}」` : l.text}
                       </div>
-                      {l.sub && <div style={{ fontSize: 12, lineHeight: 1.8, color: C.dim, marginTop: 6 }}>{l.sub}</div>}
+                      {l.line2 && <div style={{ fontSize: 13, lineHeight: 1.9, color: C.ivory, marginTop: 6 }}>「{l.line2}」</div>}
                     </div>
                   </div>
                   {l.t === "sale" && (
-                    <div style={{ marginTop: 10, borderTop: `1px solid ${C.line}`, paddingTop: 8, display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+                    <div style={{ marginTop: 10, borderTop: `1px solid ${l.grad ? "#e0b96a" : C.line}`, paddingTop: 8, display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
                       <SpecIcon id={l.itemId} fileImgs={fileImgs} size={26} emojiSize={16} />
                       <span>{SPECIMENS[l.itemId].name}</span>
-                      <span style={{ marginLeft: "auto", color: C.brass, fontVariantNumeric: "tabular-nums" }}>{l.price} G</span>
+                      <span style={{ marginLeft: "auto", color: l.grad ? "#e0b96a" : C.brass, fontVariantNumeric: "tabular-nums" }}>{l.price} G</span>
                     </div>
                   )}
                 </Panel>

@@ -48,8 +48,10 @@ function newGame() {
     alias: null, aliasHistory: [],
     offer: null, offerResult: null, collectorCd: 0,
     apprentice: false,
+    trust: 0, // 蒐集家の信頼(内部値、-6〜+6。画面には出さない)
   };
 }
+const clampTrust = (t) => Math.max(-6, Math.min(6, t));
 // v1セーブの取り込み
 function migrate(loaded) {
   const base = newGame();
@@ -66,6 +68,7 @@ function migrate(loaded) {
   g.offer = null; g.offerResult = null;
   g.collectorCd = loaded.collectorCd || 0;
   g.apprentice = !!loaded.apprentice;
+  g.trust = typeof loaded.trust === "number" ? clampTrust(loaded.trust) : 0;
   return g;
 }
 
@@ -205,11 +208,14 @@ function simulateNight(g) {
   let wageText = null;
   if (g.apprentice) { gold -= 30; wageText = "見習いに日当 30G を払った。"; }
 
-  // 蒐集家の来訪判定
+  // 蒐集家の来訪判定(trustが負のときのみ出現率が減衰。正でも上げない)
   let offer = null;
   if (g.rep >= 18 && (g.collectorCd || 0) <= 0) {
     const nightSet = sets.some((s) => s.id === "set_night");
-    if (Math.random() < 0.22 + (nightSet ? 0.15 : 0)) {
+    let appearRate = 0.22 + (nightSet ? 0.15 : 0);
+    const trust = g.trust || 0;
+    if (trust < 0) appearRate *= 1 + trust / 8;
+    if (Math.random() < appearRate) {
       const shelfRares = shelf.map((id, i) => ({ id, i })).filter((s) => s.id && s.i < g.shelfSize && SPECIMENS[s.id].tags.includes("rare"));
       const stockRares = Object.keys(g.spec).filter((k) => g.spec[k] > 0 && SPECIMENS[k].tags.includes("rare"));
       if (shelfRares.length) { const t = pick(shelfRares); offer = { specId: t.id, source: "shelf", slot: t.i }; }
@@ -469,17 +475,25 @@ export default function BoneAndGlass() {
     if (choice === "fair") {
       const st = removeItem(g);
       setG({ ...st, gold: st.gold + fair, rep: st.rep + 3, nightEarn: st.nightEarn + fair, totalEarn: st.totalEarn + fair, totalSold: st.totalSold + 1,
-        offer: null, offerResult: `${sp.name}を ${fair}G で譲った。蒐集家「${COLLECTOR.dealFair}」`, collectorCd: 2 });
+        offer: null, offerResult: `${sp.name}を ${fair}G で譲った。蒐集家「${COLLECTOR.dealFair}」`, collectorCd: 2,
+        trust: clampTrust((g.trust || 0) + 1) });
     } else if (choice === "high") {
-      if (Math.random() < 0.6) {
+      // ふっかけ成功率: 高額品ほど通りにくく、信頼が良好だと通りやすい(上限0.85)
+      const trust = g.trust || 0;
+      const highChance = Math.min(0.85,
+        Math.max(0.35, Math.min(0.70, 0.75 - base / 2000)) + Math.max(0, trust) * 0.04);
+      if (Math.random() < highChance) {
         const st = removeItem(g);
         setG({ ...st, gold: st.gold + high, rep: st.rep + 2, nightEarn: st.nightEarn + high, totalEarn: st.totalEarn + high, totalSold: st.totalSold + 1,
-          offer: null, offerResult: `強気の値をつけた……通った。${sp.name}を ${high}G で売却。蒐集家「${COLLECTOR.dealHigh}」`, collectorCd: 2 });
+          offer: null, offerResult: `強気の値をつけた……通った。${sp.name}を ${high}G で売却。蒐集家「${COLLECTOR.dealHigh}」`, collectorCd: 2,
+          trust: clampTrust(trust + 1) });
       } else {
-        setG({ ...g, offer: null, offerResult: `強気の値をつけた……蒐集家「${COLLECTOR.dealFail}」外套が夜に溶けていった。`, collectorCd: 4 });
+        setG({ ...g, offer: null, offerResult: `強気の値をつけた……蒐集家「${COLLECTOR.dealFail}」外套が夜に溶けていった。`, collectorCd: 4,
+          trust: clampTrust(trust - 3) });
       }
     } else {
-      setG({ ...g, offer: null, offerResult: `断った。蒐集家「${COLLECTOR.refuse}」`, collectorCd: 1 });
+      setG({ ...g, offer: null, offerResult: `断った。蒐集家「${COLLECTOR.refuse}」`, collectorCd: 1,
+        trust: clampTrust((g.trust || 0) - 1) });
     }
   };
 
@@ -495,6 +509,8 @@ export default function BoneAndGlass() {
       ...g, day: g.day + 1, phase: "morning", ap: MAX_AP + (g.apprentice ? 1 : 0),
       nightLog: [], nightRent: null, craftLog: [], offer: null, offerResult: null,
       collectorCd: Math.max(0, (g.collectorCd || 0) - 1),
+      // 信頼は負のときだけ毎朝+0.5ずつ0へ回復(正の値は減衰しない)
+      trust: (g.trust || 0) < 0 ? Math.min(0, (g.trust || 0) + 0.5) : (g.trust || 0),
     };
     setG(ng); save(ng);
   };
@@ -888,6 +904,8 @@ export default function BoneAndGlass() {
               const sp = SPECIMENS[g.offer.specId];
               const base = basePrice(g, g.offer.specId);
               const fair = round5(base * 1.6), high = round5(base * 2.2);
+              const trust = g.trust || 0;
+              const appearLine = trust <= -2 ? COLLECTOR.appearCold : trust >= 2 ? COLLECTOR.appearWarm : COLLECTOR.appear;
               return (
                 <Panel style={{ borderColor: C.night }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
@@ -895,7 +913,7 @@ export default function BoneAndGlass() {
                     <div style={{ fontSize: 12, color: C.night, letterSpacing: "0.15em" }}>閉店後、扉が叩かれた</div>
                   </div>
                   <div style={{ fontSize: 13, lineHeight: 1.9, color: C.ivory }}>
-                    {COLLECTOR.name}「{COLLECTOR.appear}」<br />
+                    {COLLECTOR.name}「{appearLine}」<br />
                     「{COLLECTOR.want(sp.name)}」
                   </div>
                   <div style={{ fontSize: 11, color: C.dim, margin: "6px 0" }}>{sp.icon} {sp.name}(基準 {round5(base)}G)を望んでいる</div>

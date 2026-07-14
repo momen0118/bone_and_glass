@@ -192,6 +192,8 @@ export const CUSTOMERS = [
 export const COLLECTOR = {
   id: "collector", name: "外套の蒐集家", icon: "🕯️",
   appear: "……夜分に失礼。硝子の光が見えたものでね。",
+  appearCold: "……。(黙って品を指した)",          // trust ≦ -2
+  appearWarm: "……また来た。この店の灯りは、覚えやすい。", // trust ≧ 2
   want: (n) => `その『${n}』……私の許でこそ、あれは意味を持つ。`,
   dealFair: "賢明だ。……良い夜を。",
   dealHigh: "ふ……面白い店主だ。払おう。",

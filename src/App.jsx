@@ -12,11 +12,11 @@ import {
   PROCESSES, procLevel, RECIPES, SPEC_PROC, SECONDARY,
   SITES, SUPPLY_SHOP, SHELF_EXPAND, DECOR,
   CUSTOMERS, COLLECTOR, OOYA, SHOP_BUYOUT, SETS, ALIASES, PRICE_MODES,
-  GAKUSEI_KOUHAI_LINE, GAKUSEI_GRAD, SWAMP_UNLOCK, CAVE_UNLOCK,
+  GAKUSEI_KOUHAI_LINE, GAKUSEI_GRAD, SWAMP_UNLOCK, CAVE_UNLOCK, SPEC_LORE,
   RENT, RENT_INTERVAL, MAX_AP,
 } from "./data.js";
 import { storage } from "./storage.js";
-import { loadFileImages, FILE_ZOOM } from "./images.js";
+import { loadFileImages, FILE_ZOOM, specTrim } from "./images.js";
 
 // ---------- ユーティリティ ----------
 const rnd = (n) => Math.floor(Math.random() * n);
@@ -389,14 +389,16 @@ const FramedPortrait = ({ cid, imgs, fileImgs }) => {
   );
 };
 // 標本の絵柄: リポジトリ画像があれば正方形・角丸で、なければ絵文字
+// 画像は角丸コンテナ内で specTrim() 倍に拡大し、外周の白フチ・署名を切り落とす
 const SpecIcon = ({ id, fileImgs, size = 20, emojiSize, style }) => {
   const url = fileImgs && fileImgs.specimens && fileImgs.specimens[id];
   if (url) return (
-    <img src={url} alt="" style={{
-      width: size, height: size, objectFit: "cover",
-      borderRadius: Math.max(3, Math.round(size * 0.14)),
-      display: "inline-block", verticalAlign: "middle", flexShrink: 0, ...style,
-    }} />
+    <span style={{
+      width: size, height: size, borderRadius: Math.max(3, Math.round(size * 0.14)),
+      overflow: "hidden", display: "inline-block", verticalAlign: "middle", flexShrink: 0, ...style,
+    }}>
+      <img src={url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", transform: `scale(${specTrim(id)})` }} />
+    </span>
   );
   return <span style={{ fontSize: emojiSize || Math.round(size * 0.85), lineHeight: 1, ...style }}>{SPECIMENS[id].icon}</span>;
 };
@@ -414,6 +416,7 @@ export default function BoneAndGlass() {
   const [shelfPickFor, setShelfPickFor] = useState(null);
   const [showBook, setShowBook] = useState(false);
   const [bookTab, setBookTab] = useState("spec");
+  const [bookDetail, setBookDetail] = useState(null); // 図鑑の詳細ビュー(発見済み標本ID)
   const [showGallery, setShowGallery] = useState(false);
   const [showDecor, setShowDecor] = useState(false);
   const [toast, setToast] = useState(null);
@@ -632,7 +635,8 @@ export default function BoneAndGlass() {
   if (screen === "title") return (
     <div style={{ minHeight: "100vh", background: C.bg, position: "relative", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: "Georgia, 'Yu Mincho', serif", padding: 24, overflow: "hidden" }}>
       {shopBg && (
-        <div style={{ position: "absolute", inset: 0, backgroundImage: `url(${shopBg})`, backgroundSize: "cover", backgroundPosition: "center", opacity: 0.35, filter: "sepia(0.2) brightness(0.8)", transform: `scale(${fileImgs && fileImgs.shop ? FILE_ZOOM.shop : 1})` }} />
+        <div style={{ position: "absolute", inset: 0, backgroundImage: `url(${shopBg})`, backgroundSize: "cover", backgroundPosition: "center", opacity: 0.35, filter: "sepia(0.2) brightness(0.8)",
+          ...(fileImgs && fileImgs.shop && FILE_ZOOM.shop !== 1 ? { transform: `scale(${FILE_ZOOM.shop})` } : null) }} />
       )}
       <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to bottom, rgba(20,17,13,0.3), rgba(20,17,13,0.92))" }} />
       <div style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "center", color: C.ivory }}>
@@ -694,7 +698,7 @@ export default function BoneAndGlass() {
 
   return (
     <div style={{ minHeight: "100vh", background: C.bg, color: C.ivory, fontFamily: "Georgia, 'Yu Mincho', serif" }}>
-      <div style={{ maxWidth: 560, margin: "0 auto", padding: "12px 12px calc(96px + env(safe-area-inset-bottom, 0px))" }}>
+      <div style={{ maxWidth: 560, margin: "0 auto", paddingTop: 12, paddingLeft: 12, paddingRight: 12, paddingBottom: "calc(96px + env(safe-area-inset-bottom, 0px))" }}>
 
         {/* ヘッダー */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", borderBottom: `1px solid ${C.line}`, paddingBottom: 8, marginBottom: 10 }}>
@@ -776,7 +780,7 @@ export default function BoneAndGlass() {
 
             <Panel>
               <div style={{ fontSize: 11, color: C.dim, marginBottom: 6 }}>作業台に載せる <span style={{ color: "#6f6350" }}>(⚒=仕立て直せる ?=まだ何かになりそう)</span></div>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", maxHeight: 92, overflowY: "auto", paddingBottom: 2, WebkitOverflowScrolling: "touch" }}>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", maxHeight: 92, overflowY: "auto", paddingBottom: 2 }}>
                 {[...invEntries.filter(([k]) => !MATERIALS[k].supply), ...specEntries.filter(([k]) => craftables(k).length)].map(([k, v]) => {
                   const mk = SPECIMENS[k] ? nextMark(k) : null;
                   return (
@@ -984,9 +988,6 @@ export default function BoneAndGlass() {
                 <Btn onClick={nightCollapse} style={{ fontSize: 12 }}>残りをまとめる</Btn>
                 <Btn primary onClick={nightAdvance} style={{ marginLeft: "auto" }}>次へ →</Btn>
               </div>
-              <div style={{ position: "fixed", right: 12, bottom: "calc(70px + env(safe-area-inset-bottom, 0px))", background: "rgba(31,26,19,0.95)", border: `1px solid ${C.brass}`, borderRadius: 4, padding: "5px 10px", fontSize: 12, color: C.brass, fontVariantNumeric: "tabular-nums", zIndex: 40 }}>
-                売上 {nightEarnSoFar} G
-              </div>
             </div>
           );
         })()}
@@ -1062,26 +1063,6 @@ export default function BoneAndGlass() {
           </div>
         )}
 
-        {/* ===== フッター ===== */}
-        <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, background: "rgba(20,17,13,0.96)", borderTop: `1px solid ${C.line}`, padding: "10px 10px calc(10px + env(safe-area-inset-bottom, 0px))" }}>
-          <div style={{ maxWidth: 560, margin: "0 auto", display: "flex", gap: 6, alignItems: "center" }}>
-            <Btn onClick={() => { setBookTab("spec"); setShowBook(true); }} style={FOOT_BTN}>図鑑</Btn>
-            <Btn onClick={() => setShowGallery(true)} style={FOOT_BTN}>画廊</Btn>
-            <Btn onClick={() => setShowDecor(true)} style={FOOT_BTN}>調度屋</Btn>
-            <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
-              {g.phase === "morning" && <Btn primary onClick={() => { setCaveEvent(null); setG({ ...g, phase: "workshop" }); }} style={FOOT_BTN}>工房へ →</Btn>}
-              {g.phase === "workshop" && <Btn primary onClick={() => { setSel(null); setG({ ...g, phase: "shelf" }); }} style={FOOT_BTN}>陳列へ →</Btn>}
-              {g.phase === "shelf" && (
-                <>
-                  <Btn onClick={() => setG({ ...g, phase: "workshop" })} disabled={g.ap <= 0} style={FOOT_BTN}>← 工房</Btn>
-                  <Btn primary onClick={openStore} style={FOOT_BTN}>開店する</Btn>
-                </>
-              )}
-              {g.phase === "night" && <Btn primary onClick={nextDay} disabled={!!g.offer || nightInCards} style={FOOT_BTN}>翌朝へ →</Btn>}
-            </div>
-          </div>
-        </div>
-
         {/* ===== 図鑑(タブ付き) ===== */}
         {showBook && (
           <div onClick={() => setShowBook(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, zIndex: 50 }}>
@@ -1106,7 +1087,8 @@ export default function BoneAndGlass() {
                       const found = knownSpecs.has(id);
                       const recipe = found ? RECIPES.find((r) => r.to === id) : null;
                       return (
-                        <div key={id} style={{ border: `1px solid ${C.line}`, borderRadius: 5, padding: 8, opacity: found ? 1 : 0.45 }}>
+                        <div key={id} onClick={() => found && setBookDetail(id)}
+                          style={{ border: `1px solid ${C.line}`, borderRadius: 5, padding: 8, opacity: found ? 1 : 0.45, cursor: found ? "pointer" : "default" }}>
                           <div style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 5 }}>
                             {found ? <SpecIcon id={id} fileImgs={fileImgs} size={28} emojiSize={13} /> : "▪"} <span>{found ? s.name : "?????"}</span>
                           </div>
@@ -1159,6 +1141,45 @@ export default function BoneAndGlass() {
           </div>
         )}
 
+        {/* ===== 図鑑の詳細ビュー(発見済み標本のみ) ===== */}
+        {showBook && bookDetail && (() => {
+          const s = SPECIMENS[bookDetail];
+          const recipe = RECIPES.find((r) => r.to === bookDetail);
+          const url = fileImgs && fileImgs.specimens && fileImgs.specimens[bookDetail];
+          return (
+            <div onClick={() => setBookDetail(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, zIndex: 55 }}>
+              <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.brass}`, borderRadius: 8, padding: 16, maxWidth: 380, width: "100%", maxHeight: "82vh", overflowY: "auto" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                  <div style={{ fontSize: 15, letterSpacing: "0.1em" }}>{s.name}</div>
+                  <button onClick={() => setBookDetail(null)} style={{ background: "none", border: "none", color: C.dim, cursor: "pointer", fontFamily: "inherit" }}>閉じる</button>
+                </div>
+                <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}>
+                  {url ? (
+                    <span style={{ width: "76%", aspectRatio: "1 / 1", borderRadius: 8, overflow: "hidden", display: "block", border: `1px solid ${C.line}` }}>
+                      <img src={url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", transform: `scale(${specTrim(bookDetail)})` }} />
+                    </span>
+                  ) : (
+                    <div style={{ width: "76%", aspectRatio: "1 / 1", borderRadius: 8, border: `1px solid ${C.line}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 72, background: "#171310" }}>{s.icon}</div>
+                  )}
+                </div>
+                <div style={{ fontSize: 12, color: C.dim, textAlign: "center" }}>
+                  {CAT_NAME[s.cat]} · {s.price}G{s.tags.map((t) => <TagChip key={t} t={t} />)}
+                </div>
+                {recipe && (
+                  <div style={{ fontSize: 12, color: C.dim, textAlign: "center", marginTop: 4 }}>
+                    仕立て: {PROCESSES[recipe.proc].name}{(recipe.minLv || 1) >= 2 ? ` Lv${recipe.minLv}` : ""}
+                  </div>
+                )}
+                {SPEC_LORE[bookDetail] && (
+                  <div style={{ fontSize: 13, color: C.ivory, lineHeight: 2, marginTop: 12, borderTop: `1px solid ${C.line}`, paddingTop: 10 }}>
+                    {SPEC_LORE[bookDetail]}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
         {/* ===== 調度屋(棚増設・内装) ===== */}
         {showDecor && (
           <div onClick={() => setShowDecor(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, zIndex: 50 }}>
@@ -1180,7 +1201,11 @@ export default function BoneAndGlass() {
                     {g.decor[d.id] ? <span style={{ fontSize: 12, color: C.glass }}>設置済</span> : <Btn onClick={() => buyDecor(d)} disabled={g.gold < d.cost}>{d.cost}G</Btn>}
                   </div>
                 ))}
-                {!g.ownShop && (
+                {g.ownShop ? (
+                  <div style={{ fontSize: 12, color: C.dim, borderTop: `1px solid ${C.line}`, paddingTop: 8, marginTop: 2, lineHeight: 1.8 }}>
+                    この棚も、壁も、軋む床板も、もう誰のものでもない。
+                  </div>
+                ) : (
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: `1px solid ${C.line}`, paddingTop: 8, marginTop: 2 }}>
                     <div style={{ fontSize: 13 }}>この店の買い取り<div style={{ fontSize: 11, color: C.dim }}>大家から店ごと買い上げる。家賃とはお別れだ</div></div>
                     <Btn onClick={buyShop} disabled={g.gold < SHOP_BUYOUT}>{SHOP_BUYOUT}G</Btn>
@@ -1256,12 +1281,41 @@ export default function BoneAndGlass() {
           </div>
         )}
 
-        {toast && (
-          <div style={{ position: "fixed", bottom: "calc(68px + env(safe-area-inset-bottom, 0px))", left: "50%", transform: "translateX(-50%)", background: C.panelHi, border: `1px solid ${C.brass}`, color: C.ivory, borderRadius: 6, padding: "8px 14px", fontSize: 13, zIndex: 60, maxWidth: "90%", boxShadow: "0 4px 18px rgba(0,0,0,0.5)" }}>
-            {toast}
-          </div>
-        )}
       </div>
+
+      {/* ===== 画面下端に固定する要素(ルート直下に置き、祖先スタイルの影響を受けないようにする) ===== */}
+      {/* 夜のカード送り中の売上累計チップ */}
+      {g.phase === "night" && nightInCards && (
+        <div style={{ position: "fixed", right: 12, bottom: "calc(70px + env(safe-area-inset-bottom, 0px))", background: "rgba(31,26,19,0.95)", border: `1px solid ${C.brass}`, borderRadius: 4, padding: "5px 10px", fontSize: 12, color: C.brass, fontVariantNumeric: "tabular-nums", zIndex: 40 }}>
+          売上 {nightEarnSoFar} G
+        </div>
+      )}
+
+      {/* 下部バー */}
+      <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, background: "rgba(20,17,13,0.96)", borderTop: `1px solid ${C.line}`, paddingTop: 10, paddingLeft: 10, paddingRight: 10, paddingBottom: "calc(10px + env(safe-area-inset-bottom, 0px))" }}>
+        <div style={{ maxWidth: 560, margin: "0 auto", display: "flex", gap: 6, alignItems: "center" }}>
+          <Btn onClick={() => { setBookTab("spec"); setBookDetail(null); setShowBook(true); }} style={FOOT_BTN}>図鑑</Btn>
+          <Btn onClick={() => setShowGallery(true)} style={FOOT_BTN}>画廊</Btn>
+          <Btn onClick={() => setShowDecor(true)} style={FOOT_BTN}>調度屋</Btn>
+          <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
+            {g.phase === "morning" && <Btn primary onClick={() => { setCaveEvent(null); setG({ ...g, phase: "workshop" }); }} style={FOOT_BTN}>工房へ →</Btn>}
+            {g.phase === "workshop" && <Btn primary onClick={() => { setSel(null); setG({ ...g, phase: "shelf" }); }} style={FOOT_BTN}>陳列へ →</Btn>}
+            {g.phase === "shelf" && (
+              <>
+                <Btn onClick={() => setG({ ...g, phase: "workshop" })} disabled={g.ap <= 0} style={FOOT_BTN}>← 工房</Btn>
+                <Btn primary onClick={openStore} style={FOOT_BTN}>開店する</Btn>
+              </>
+            )}
+            {g.phase === "night" && <Btn primary onClick={nextDay} disabled={!!g.offer || nightInCards} style={FOOT_BTN}>翌朝へ →</Btn>}
+          </div>
+        </div>
+      </div>
+
+      {toast && (
+        <div style={{ position: "fixed", bottom: "calc(68px + env(safe-area-inset-bottom, 0px))", left: "50%", transform: "translateX(-50%)", background: C.panelHi, border: `1px solid ${C.brass}`, color: C.ivory, borderRadius: 6, padding: "8px 14px", fontSize: 13, zIndex: 60, maxWidth: "90%", boxShadow: "0 4px 18px rgba(0,0,0,0.5)" }}>
+          {toast}
+        </div>
+      )}
     </div>
   );
 }

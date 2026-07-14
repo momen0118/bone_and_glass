@@ -13,6 +13,12 @@ export const PORTRAIT_IDS = ["gakusei", "gakusha", "koujika", "kifujin", "collec
 // 肖像は横長(左右に壁紙、中央に楕円の額)なので、円形切り抜きに楕円の内側が収まるよう拡大する
 export const FILE_ZOOM = { portrait: 1.7, shop: 1.0 };
 
+// 標本画像の外周トリム倍率: 生成画像の白フチ・右下の署名を表示時に切り落とす(元ファイルは加工しない)
+export const SPEC_TRIM = 1.15;
+// 個体差が出た標本用の上書き倍率(標本ID → 倍率)。初期は空
+export const SPEC_TRIM_BY_ID = {};
+export const specTrim = (id) => SPEC_TRIM_BY_ID[id] || SPEC_TRIM;
+
 const FILES = import.meta.glob("/img/**/*.{png,jpg}", { eager: true, query: "?url", import: "default" });
 const urlFor = (base) => FILES[`${base}.png`] || FILES[`${base}.jpg`] || null;
 

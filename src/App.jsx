@@ -53,7 +53,7 @@ function newGame() {
   };
 }
 const clampTrust = (t) => Math.max(-6, Math.min(6, t));
-// 家賃の段階化: 家賃日の夜の評判で判定
+// 家賃の段階化: 開店前(その日の朝時点)の評判で判定。大家は先週までの噂を聞いて来る
 const rentFor = (rep) => (rep >= 40 ? 200 : rep >= 20 ? 150 : RENT);
 // v1セーブの取り込み
 function migrate(loaded) {
@@ -221,7 +221,7 @@ function simulateNight(g) {
 
   let rentText = null, rentPaid = null;
   if (g.day % RENT_INTERVAL === 0) {
-    const rent = rentFor(g.rep + rep); // 家賃日の夜(営業終わり)の評判で判定
+    const rent = rentFor(g.rep); // 開店前(朝時点)の評判で判定
     gold -= rent; rentPaid = rent;
     rentText = rent > (g.lastRent != null ? g.lastRent : RENT)
       ? `大家「景気が良さそうじゃないか、ええ?」— 家賃は ${rent}G になった。`
@@ -230,7 +230,7 @@ function simulateNight(g) {
 
   // 見習いの日当
   let wageText = null;
-  if (g.apprentice) { gold -= 30; wageText = "見習いに日当 30G を払った。"; }
+  if (g.apprentice) { gold -= 50; wageText = "見習いに日当 50G を払った。"; }
 
   // 蒐集家の来訪判定(trustが負のときのみ出現率が減衰。正でも上げない)
   let offer = null;
@@ -278,6 +278,8 @@ function resizeImage(file, maxW, maxH, cb) {
 // ============================================================
 // UI 部品
 // ============================================================
+// 下部バーのボタン共通スタイル(折り返し禁止・狭い幅でも一行に収める)
+const FOOT_BTN = { fontSize: 12, padding: "8px 9px", whiteSpace: "nowrap" };
 const Panel = ({ children, style }) => (
   <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6, padding: 12, ...style }}>{children}</div>
 );
@@ -639,7 +641,7 @@ export default function BoneAndGlass() {
         {g.phase === "morning" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <Panel style={{ background: "transparent" }}>
-              <div style={{ fontSize: 11, color: C.dim, marginBottom: 4 }}>倉庫の素材(採集地の順)</div>
+              <div style={{ fontSize: 11, color: C.dim, marginBottom: 4 }}>倉庫</div>
               <div style={{ fontSize: 13, lineHeight: 1.9 }}>
                 {invEntries.length ? invEntries.map(([k, v]) => <span key={k} style={{ marginRight: 10, whiteSpace: "nowrap" }}>{itemIcon(k)}{itemName(k)}×{v}</span>) : <span style={{ color: C.dim }}>空っぽだ</span>}
               </div>
@@ -670,13 +672,13 @@ export default function BoneAndGlass() {
                 ))}
               </div>
             </Panel>
-            {g.rep >= 15 && (
+            {g.rep >= 20 && (
               <Panel>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <div>
-                    <div style={{ fontSize: 15 }}>見習い <span style={{ fontSize: 11, color: C.dim }}>日当30G</span></div>
+                    <div style={{ fontSize: 15 }}>見習い <span style={{ fontSize: 11, color: C.dim }}>日当50G</span></div>
                     <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>
-                      {g.apprentice ? "今日は店の手伝いに入っている(作業+1)" : "今日は休ませている"}
+                      {g.apprentice ? "見習いは朝から工房にいる(作業+1)" : "見習いには暇を出している"}
                     </div>
                   </div>
                   <Btn onClick={toggleApprentice}>{g.apprentice ? "休ませる" : "雇う"}</Btn>
@@ -696,7 +698,7 @@ export default function BoneAndGlass() {
 
             <Panel>
               <div style={{ fontSize: 11, color: C.dim, marginBottom: 6 }}>作業台に載せる <span style={{ color: "#6f6350" }}>(⚒=仕立て直せる ?=まだ何かになりそう)</span></div>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", gap: 6, flexWrap: "nowrap", overflowX: "auto", paddingBottom: 4, WebkitOverflowScrolling: "touch" }}>
                 {[...invEntries.filter(([k]) => !MATERIALS[k].supply), ...specEntries.filter(([k]) => craftables(k).length)].map(([k, v]) => {
                   const mk = SPECIMENS[k] ? nextMark(k) : null;
                   return (
@@ -705,6 +707,7 @@ export default function BoneAndGlass() {
                         fontFamily: "inherit", cursor: "pointer", fontSize: 13, padding: "6px 9px", borderRadius: 4,
                         background: sel === k ? C.brass : C.panelHi, color: sel === k ? "#1a140c" : C.ivory,
                         border: `1px solid ${sel === k ? C.brass : C.line}`,
+                        whiteSpace: "nowrap", flexShrink: 0,
                       }}>{itemIcon(k)} {itemName(k)} ×{v}{mk && <span style={{ color: sel === k ? "#1a140c" : C.glass, marginLeft: 4 }}>{mk}</span>}</button>
                   );
                 })}
@@ -715,7 +718,7 @@ export default function BoneAndGlass() {
 
             <Panel>
               <div style={{ fontSize: 11, color: C.dim, marginBottom: 6 }}>仕立て方 {sel ? `— ${itemIcon(sel)} ${itemName(sel)}` : "(先に素材を選ぶ)"}</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
                 {Object.entries(PROCESSES).map(([pid, p]) => {
                   const lv = procLevel(g.procExp[pid] || 0);
                   const r = sel ? RECIPES.find((x) => x.from === sel && x.proc === pid) : null;
@@ -734,25 +737,32 @@ export default function BoneAndGlass() {
                         background: disabled ? "transparent" : C.panelHi,
                         border: `1px solid ${possible && sel ? C.brass : C.line}`,
                         opacity: sel && !possible ? 0.35 : 1,
-                        color: C.ivory, borderRadius: 4, padding: "8px 10px", fontSize: 13,
+                        color: C.ivory, borderRadius: 4, padding: "7px 9px", fontSize: 13,
                       }}>
                       <span style={{ color: possible && sel ? C.brass : C.ivory }}>{p.name}</span>
-                      <span style={{ fontSize: 10, color: C.dim, marginLeft: 6 }}>Lv{lv}</span>
+                      <span style={{ fontSize: 10, color: C.dim, marginLeft: 5 }}>Lv{lv}</span>
                       {r && (r.minLv || 1) >= 2 && (
-                        <span style={{ fontSize: 10, marginLeft: 6, padding: "0 4px", borderRadius: 3, border: `1px solid ${lvOk ? C.line : C.red}`, color: lvOk ? C.dim : C.red }}>要Lv{r.minLv}</span>
+                        <span style={{ fontSize: 10, marginLeft: 5, padding: "0 4px", borderRadius: 3, border: `1px solid ${lvOk ? C.line : C.red}`, color: lvOk ? C.dim : C.red, whiteSpace: "nowrap" }}>要Lv{r.minLv}</span>
                       )}
-                      {p.needs && <span style={{ fontSize: 11, color: (g.inv[p.needs] || 0) > 0 ? C.glass : C.red, marginLeft: 6 }}>要 {itemIcon(p.needs)}{itemName(p.needs)}(所持{g.inv[p.needs] || 0})</span>}
-                      <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>
-                        {!sel ? p.desc
-                          : !possible ? "この素材には合わないようだ"
-                          : !lvOk ? `熟練が足りない — ${p.name}Lv${r.minLv}になれば、何かできそうだ`
-                          : known ? `→ ${SPECIMENS[r.to].icon} ${SPECIMENS[r.to].name}(基準 ${round5(basePrice(g, r.to))}G)`
-                          : "→ ??? 何ができるかは、やってみないと分からない"}
-                      </div>
+                      {sel && possible && p.needs && (
+                        <div style={{ fontSize: 10, color: (g.inv[p.needs] || 0) > 0 ? C.glass : C.red, marginTop: 2 }}>要 {itemIcon(p.needs)}{itemName(p.needs)}(所持{g.inv[p.needs] || 0})</div>
+                      )}
+                      {/* 素材未選択のあいだは説明を畳み、一画面に収める */}
+                      {sel && (
+                        <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>
+                          {!possible ? "この素材には合わないようだ"
+                            : !lvOk ? `熟練が足りない — ${p.name}Lv${r.minLv}になれば、何かできそうだ`
+                            : known ? `→ ${SPECIMENS[r.to].icon} ${SPECIMENS[r.to].name}(基準 ${round5(basePrice(g, r.to))}G)`
+                            : "→ ??? 何ができるかは、やってみないと分からない"}
+                        </div>
+                      )}
                       {sel && possible && (
-                        <div style={{ display: "flex", gap: 6, marginTop: 7 }}>
-                          <Btn primary={!disabled} disabled={disabled} onClick={() => doCraft(r, 1)} style={{ fontSize: 12, padding: "6px 12px" }}>仕立てる</Btn>
-                          <Btn disabled={!canDouble} onClick={() => doCraft(r, 2)} style={{ fontSize: 12, padding: "6px 12px" }}>2個仕立てる</Btn>
+                        <div style={{ display: "flex", gap: 5, marginTop: 6, flexWrap: "wrap" }}>
+                          <Btn primary={!disabled} disabled={disabled} onClick={() => doCraft(r, 1)} style={{ fontSize: 12, padding: "5px 10px", whiteSpace: "nowrap" }}>仕立てる</Btn>
+                          {/* Lv3特典は到達するまで見せない(未解放要素を明かさない) */}
+                          {lv >= 3 && (
+                            <Btn disabled={!canDouble} onClick={() => doCraft(r, 2)} style={{ fontSize: 12, padding: "5px 10px", whiteSpace: "nowrap" }}>2個仕立てる</Btn>
+                          )}
                         </div>
                       )}
                     </div>
@@ -974,21 +984,21 @@ export default function BoneAndGlass() {
         )}
 
         {/* ===== フッター ===== */}
-        <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, background: "rgba(20,17,13,0.96)", borderTop: `1px solid ${C.line}`, padding: "10px 12px" }}>
-          <div style={{ maxWidth: 560, margin: "0 auto", display: "flex", gap: 8, alignItems: "center" }}>
-            <Btn onClick={() => { setBookTab("spec"); setShowBook(true); }} style={{ fontSize: 12, padding: "8px 10px" }}>図鑑 {knownSpecs.size}/{Object.keys(SPECIMENS).length}</Btn>
-            <Btn onClick={() => setShowGallery(true)} style={{ fontSize: 12, padding: "8px 10px" }}>画廊</Btn>
-            <Btn onClick={() => setShowDecor(true)} style={{ fontSize: 12, padding: "8px 10px" }}>設え</Btn>
-            <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
-              {g.phase === "morning" && <Btn primary onClick={() => setG({ ...g, phase: "workshop" })}>工房へ →</Btn>}
-              {g.phase === "workshop" && <Btn primary onClick={() => { setSel(null); setG({ ...g, phase: "shelf" }); }}>陳列へ →</Btn>}
+        <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, background: "rgba(20,17,13,0.96)", borderTop: `1px solid ${C.line}`, padding: "10px 10px" }}>
+          <div style={{ maxWidth: 560, margin: "0 auto", display: "flex", gap: 6, alignItems: "center" }}>
+            <Btn onClick={() => { setBookTab("spec"); setShowBook(true); }} style={FOOT_BTN}>図鑑</Btn>
+            <Btn onClick={() => setShowGallery(true)} style={FOOT_BTN}>画廊</Btn>
+            <Btn onClick={() => setShowDecor(true)} style={FOOT_BTN}>調度屋</Btn>
+            <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
+              {g.phase === "morning" && <Btn primary onClick={() => setG({ ...g, phase: "workshop" })} style={FOOT_BTN}>工房へ →</Btn>}
+              {g.phase === "workshop" && <Btn primary onClick={() => { setSel(null); setG({ ...g, phase: "shelf" }); }} style={FOOT_BTN}>陳列へ →</Btn>}
               {g.phase === "shelf" && (
                 <>
-                  <Btn onClick={() => setG({ ...g, phase: "workshop" })} disabled={g.ap <= 0}>← 工房</Btn>
-                  <Btn primary onClick={openStore}>開店する</Btn>
+                  <Btn onClick={() => setG({ ...g, phase: "workshop" })} disabled={g.ap <= 0} style={FOOT_BTN}>← 工房</Btn>
+                  <Btn primary onClick={openStore} style={FOOT_BTN}>開店する</Btn>
                 </>
               )}
-              {g.phase === "night" && <Btn primary onClick={nextDay} disabled={!!g.offer || nightInCards}>翌朝へ →</Btn>}
+              {g.phase === "night" && <Btn primary onClick={nextDay} disabled={!!g.offer || nightInCards} style={FOOT_BTN}>翌朝へ →</Btn>}
             </div>
           </div>
         </div>
@@ -1070,12 +1080,12 @@ export default function BoneAndGlass() {
           </div>
         )}
 
-        {/* ===== 設え(棚増設・内装) ===== */}
+        {/* ===== 調度屋(棚増設・内装) ===== */}
         {showDecor && (
           <div onClick={() => setShowDecor(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, zIndex: 50 }}>
             <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.brass}`, borderRadius: 8, padding: 16, maxWidth: 480, width: "100%", maxHeight: "82vh", overflowY: "auto" }}>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                <div style={{ letterSpacing: "0.25em", color: C.brass, fontSize: 13 }}>店の設え — 儲けの使い道</div>
+                <div style={{ letterSpacing: "0.25em", color: C.brass, fontSize: 13 }}>調度屋 — 店の誂え</div>
                 <button onClick={() => setShowDecor(false)} style={{ background: "none", border: "none", color: C.dim, cursor: "pointer", fontFamily: "inherit" }}>閉じる</button>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>

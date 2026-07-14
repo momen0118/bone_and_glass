@@ -6,238 +6,16 @@ import React, { useState, useEffect, useCallback } from "react";
 //       外套の蒐集家(交渉) / 常連セリフ / 画像差し替え(画廊)
 // ============================================================
 
-const SAVE_KEY = "bone_glass_save_v1";   // v1のセーブを引き継ぐ
-const IMG_KEY = "bg_images_v1";
-
-// ---------- 色 ----------
-const C = {
-  bg: "#14110d", panel: "#1f1a13", panelHi: "#2a2318",
-  line: "#4a3b28", brass: "#c9a15e", ivory: "#e8dcc4",
-  dim: "#8a7a5f", glass: "#7fa07a", red: "#b06a5a",
-  night: "#8fa3b8", // 蒐集家の色
-};
-
-// ---------- 素材・資材 ----------
-const MATERIALS = {
-  tori:    { name: "小鳥の亡骸", icon: "🐦" },
-  chou:    { name: "蝶",         icon: "🦋" },
-  kabuto:  { name: "甲虫",       icon: "🪲" },
-  koke:    { name: "苔",         icon: "🌿" },
-  sakana:  { name: "小魚",       icon: "🐟" },
-  kai:     { name: "巻貝",       icon: "🐚" },
-  kani:    { name: "蟹",         icon: "🦀" },
-  kurage:  { name: "海月",       icon: "🪼" },
-  koumori: { name: "蝙蝠の亡骸", icon: "🦇" },
-  hebi:    { name: "蛇の亡骸",   icon: "🐍" },
-  suisho:  { name: "水晶の原石", icon: "💎" },
-  ammo:    { name: "アンモナイトの原石", icon: "🌀" },
-  kaeru:   { name: "蛙の亡骸",   icon: "🐸" },
-  tokage:  { name: "蜥蜴の亡骸", icon: "🦎" },
-  ga:      { name: "枯葉蛾",     icon: "🍂" },
-  hikarigoke: { name: "夜光苔",  icon: "✨" },
-  fukurou: { name: "梟の亡骸",   icon: "🦉" },
-  bin:     { name: "硝子瓶",     icon: "🫙", supply: true },
-  waku:    { name: "真鍮の額縁", icon: "🖼️", supply: true },
-  daiza:   { name: "黒檀の台座", icon: "◼️", supply: true },
-};
-const MAT_ORDER = ["tori","chou","kabuto","koke","sakana","kai","kani","kurage","koumori","hebi","suisho","ammo","kaeru","tokage","ga","hikarigoke","fukurou","bin","waku","daiza"];
-
-// ---------- 標本 ----------
-const CAT_NAME = { bone: "骨格", insect: "昆虫", wet: "液浸", mineral: "鉱物", craft: "工芸" };
-const TAG_NAME = { rare: "珍", fancy: "華", scholar: "学" };
-
-const SPECIMENS = {
-  s_torikotsu: { name: "小鳥の頭骨",       icon: "🐦", price: 120, cat: "bone",    tags: [] },
-  s_zenshin:   { name: "小鳥の全身骨格",   icon: "🦴", price: 360, cat: "bone",    tags: ["rare","scholar"] },
-  s_tenshi:    { name: "蝶の展翅標本",     icon: "🦋", price: 100, cat: "insect",  tags: [] },
-  s_chougaku:  { name: "蝶の額装標本",     icon: "🖼️", price: 280, cat: "insect",  tags: ["fancy"] },
-  s_kabuto:    { name: "甲虫の乾燥標本",   icon: "🪲", price: 90,  cat: "insect",  tags: [] },
-  s_kabutogaku:{ name: "甲虫の額装標本",   icon: "🖼️", price: 240, cat: "insect",  tags: ["fancy"] },
-  s_terra:     { name: "苔のテラリウム",   icon: "🌿", price: 160, cat: "craft",   tags: ["fancy"] },
-  s_gyoshin:   { name: "魚の液浸標本",     icon: "🐟", price: 130, cat: "wet",     tags: [] },
-  s_kuragebin: { name: "海月の液浸標本",   icon: "🪼", price: 300, cat: "wet",     tags: ["rare"] },
-  s_kaimigaki: { name: "磨き上げた貝殻",   icon: "🐚", price: 80,  cat: "mineral", tags: [] },
-  s_kani:      { name: "蟹の乾燥標本",     icon: "🦀", price: 140, cat: "craft",   tags: [] },
-  s_koumori:   { name: "蝙蝠の骨格標本",   icon: "🦇", price: 320, cat: "bone",    tags: ["rare","scholar"] },
-  s_hebibin:   { name: "蛇の液浸標本",     icon: "🐍", price: 260, cat: "wet",     tags: ["rare"] },
-  s_hebikotsu: { name: "蛇の脊椎骨標本",   icon: "🦴", price: 200, cat: "bone",    tags: ["scholar"] },
-  s_suisho:    { name: "水晶のクラスター", icon: "💎", price: 180, cat: "mineral", tags: ["fancy"] },
-  s_ammo:      { name: "アンモナイトの化石", icon: "🌀", price: 220, cat: "mineral", tags: ["scholar"] },
-  // --- v2 追加(湿原・熟練) ---
-  s_kaerubin:  { name: "蛙の液浸標本",     icon: "🐸", price: 140, cat: "wet",     tags: [] },
-  s_kaerukotsu:{ name: "蛙の骨格標本",     icon: "🦴", price: 190, cat: "bone",    tags: ["scholar"] },
-  s_tokagebin: { name: "蜥蜴の液浸標本",   icon: "🦎", price: 210, cat: "wet",     tags: ["rare"] },
-  s_ga:        { name: "枯葉蛾の展翅標本", icon: "🍂", price: 110, cat: "insect",  tags: [] },
-  s_gagaku:    { name: "枯葉蛾の額装標本", icon: "🖼️", price: 270, cat: "insect",  tags: ["fancy","rare"] },
-  s_fukuroukotsu:{ name: "梟の頭骨",       icon: "🦉", price: 340, cat: "bone",    tags: ["rare","scholar"] },
-  s_fukurouzen:{ name: "梟の全身骨格",     icon: "🦉", price: 620, cat: "bone",    tags: ["rare","scholar"] },
-  s_hikariterra:{ name: "光る苔のテラリウム", icon: "✨", price: 300, cat: "craft", tags: ["fancy","rare"] },
-  s_kaigaku:   { name: "貝殻の額装標本",   icon: "🖼️", price: 190, cat: "mineral", tags: ["fancy"] },
-  s_kanikoura: { name: "磨き上げた甲羅",   icon: "🦀", price: 130, cat: "mineral", tags: [] },
-};
-
-// ---------- 処理法 ----------
-const PROCESSES = {
-  boil:     { name: "煮沸洗浄", desc: "亡骸を煮て、骨だけを取り出す" },
-  dry:      { name: "乾燥展翅", desc: "形を整え、静かに乾かす" },
-  preserve: { name: "硝子封入", desc: "硝子瓶に封じて保存する", needs: "bin" },
-  frame:    { name: "額装",     desc: "額縁に収めて飾り立てる", needs: "waku" },
-  polish:   { name: "研磨",     desc: "磨き上げて輝きを出す" },
-  assemble: { name: "組立",     desc: "台座の上に骨を組み上げる", needs: "daiza" },
-};
-const procLevel = (exp) => (exp >= 12 ? 3 : exp >= 4 ? 2 : 1);
-
-// ---------- レシピ (minLv: 必要熟練) ----------
-const RECIPES = [
-  { id: "r01", from: "tori",        proc: "boil",     to: "s_torikotsu" },
-  { id: "r02", from: "s_torikotsu", proc: "assemble", to: "s_zenshin" },
-  { id: "r03", from: "chou",        proc: "dry",      to: "s_tenshi" },
-  { id: "r04", from: "s_tenshi",    proc: "frame",    to: "s_chougaku" },
-  { id: "r05", from: "kabuto",      proc: "dry",      to: "s_kabuto" },
-  { id: "r06", from: "s_kabuto",    proc: "frame",    to: "s_kabutogaku" },
-  { id: "r07", from: "koke",        proc: "preserve", to: "s_terra" },
-  { id: "r08", from: "sakana",      proc: "preserve", to: "s_gyoshin" },
-  { id: "r09", from: "kurage",      proc: "preserve", to: "s_kuragebin" },
-  { id: "r10", from: "kai",         proc: "polish",   to: "s_kaimigaki" },
-  { id: "r11", from: "kani",        proc: "dry",      to: "s_kani" },
-  { id: "r12", from: "koumori",     proc: "boil",     to: "s_koumori" },
-  { id: "r13", from: "hebi",        proc: "preserve", to: "s_hebibin" },
-  { id: "r14", from: "hebi",        proc: "boil",     to: "s_hebikotsu" },
-  { id: "r15", from: "suisho",      proc: "polish",   to: "s_suisho" },
-  { id: "r16", from: "ammo",        proc: "polish",   to: "s_ammo" },
-  // --- v2 ---
-  { id: "r17", from: "kaeru",       proc: "preserve", to: "s_kaerubin" },
-  { id: "r18", from: "kaeru",       proc: "boil",     to: "s_kaerukotsu", minLv: 2 },
-  { id: "r19", from: "tokage",      proc: "preserve", to: "s_tokagebin" },
-  { id: "r20", from: "ga",          proc: "dry",      to: "s_ga" },
-  { id: "r21", from: "s_ga",        proc: "frame",    to: "s_gagaku",     minLv: 2 },
-  { id: "r22", from: "fukurou",     proc: "boil",     to: "s_fukuroukotsu", minLv: 2 },
-  { id: "r23", from: "s_fukuroukotsu", proc: "assemble", to: "s_fukurouzen", minLv: 2 },
-  { id: "r24", from: "hikarigoke",  proc: "preserve", to: "s_hikariterra", minLv: 2 },
-  { id: "r25", from: "s_kaimigaki", proc: "frame",    to: "s_kaigaku",    minLv: 2 },
-  { id: "r26", from: "kani",        proc: "polish",   to: "s_kanikoura",  minLv: 2 },
-];
-// 標本 → 最終工程(熟練Lv3の売価ボーナス用)
-const SPEC_PROC = {};
-RECIPES.forEach((r) => { SPEC_PROC[r.to] = r.proc; });
-// 二次加工が存在する品(from側に立つ標本)
-const SECONDARY = {};
-RECIPES.forEach((r) => { if (SPECIMENS[r.from]) SECONDARY[r.from] = r.id; });
-
-// ---------- 採集地 ----------
-const SITES = [
-  { id: "mori",  name: "近くの森", cost: 40, desc: "鳥・虫・苔。手堅い採集地",
-    table: [ ["tori", 3], ["chou", 4], ["kabuto", 4], ["koke", 3] ] },
-  { id: "umibe", name: "入り江", cost: 50, desc: "魚・貝・蟹。稀に海月",
-    table: [ ["sakana", 4], ["kai", 4], ["kani", 3], ["kurage", 1] ] },
-  { id: "doukutsu", name: "石灰洞窟", cost: 85, desc: "蝙蝠・蛇・鉱石。費用は嵩む",
-    table: [ ["koumori", 2], ["hebi", 3], ["suisho", 3], ["ammo", 2] ] },
-  { id: "shitsugen", name: "霧の湿原", cost: 150, minRep: 10, desc: "蛙・蜥蜴・蛾、稀に梟。遠出になる",
-    table: [ ["kaeru", 3], ["tokage", 3], ["ga", 3], ["hikarigoke", 2], ["fukurou", 1] ] },
-];
-
-const SUPPLY_SHOP = [
-  { id: "bin", cost: 25 }, { id: "waku", cost: 45 }, { id: "daiza", cost: 55 },
-];
-
-// ---------- 店の設え ----------
-const SHELF_EXPAND = { 7: 800, 8: 1200, 9: 1800 };
-const DECOR = [
-  { id: "lamp",   name: "真鍮の吊りランプ", icon: "🕯️", cost: 600,  desc: "店先が明るくなり、客足が増す(来客+1)" },
-  { id: "velvet", name: "天鵞絨の敷布",     icon: "🟥", cost: 900,  desc: "華やかな品が映える(華タグの売価+10%)" },
-  { id: "window", name: "大硝子窓",         icon: "🪟", cost: 1500, desc: "往来から棚が見える(購入率+5%)" },
-];
-
-// ---------- 客 ----------
-const CUSTOMERS = [
-  { id: "gakusei", name: "学生", icon: "📓", minRep: 0, budget: 150, weight: 4, easyBuyer: true,
-    likesTags: [], likesCats: [],
-    lines: {
-      buy: ["小遣いで買えるのを探してて…", "レポートの資料にしたいんです", "ここ、落ち着きますね"],
-      regular: ["また来ちゃいました", "先生に自慢したら羨ましがられました"],
-      friend: ["この店で買った頭骨、下宿の机に置いてます", "就職したら、大きいのを買いに来ますから"],
-      pass: ["……今月は下宿代が。また来ます", "うう、悩む。悩んで、帰ります"],
-      poor: ["桁がひとつ違うや……見てるだけでも楽しいけど"],
-      big: ["一世一代の買い物です!"],
-    } },
-  { id: "gakusha", name: "老学者", icon: "🧐", minRep: 8, budget: 420, weight: 3,
-    likesTags: ["scholar"], likesCats: ["bone", "mineral"],
-    lines: {
-      buy: ["ふむ、保存状態がよろしい", "研究室に置きたい", "この骨の並び…実に正確だ"],
-      regular: ["君の仕事は信用できる", "弟子にもこの店を教えた"],
-      friend: ["論文の謝辞に店の名を書いておいたよ", "君は良い標本師になったな"],
-      pass: ["うちの研究室に既にあるのでな", "分類に少々疑問が残る。出直そう"],
-      poor: ["研究費の申請が通ってからだ……"],
-      big: ["これは学術的発見に等しい"],
-    } },
-  { id: "koujika", name: "好事家", icon: "🎩", minRep: 16, budget: 520, weight: 3,
-    likesTags: ["rare"], likesCats: [],
-    lines: {
-      buy: ["珍しいものはあるかね", "よそでは見ない品だ", "私の部屋に飾るとしよう"],
-      regular: ["今夜も掘り出し物の匂いがする", "友人には教えたくない店だ"],
-      friend: ["私の蒐集室の半分は、この店の品だよ"],
-      pass: ["ふむ……本物かね? いや、疑って悪かった", "今宵は心が動かなかった"],
-      poor: ["金貨が足りん。屋敷から取ってくるべきだったか"],
-      big: ["この出会いに乾杯したい気分だ"],
-    } },
-  { id: "kifujin", name: "貴婦人", icon: "🪞", minRep: 26, budget: 650, weight: 2,
-    likesTags: ["fancy"], likesCats: [],
-    lines: {
-      buy: ["あら、綺麗…", "客間に映えそうだわ", "包んでちょうだい"],
-      regular: ["お友達にもこの店を教えましたのよ", "あなたの棚は、いつ見ても素敵"],
-      friend: ["主人には内緒の楽しみですの"],
-      pass: ["素敵だけど、客間には少し大きすぎるわね", "今日は見に来ただけですの"],
-      poor: ["あら……お財布を忘れてきたみたい"],
-      big: ["今夜の夜会で自慢しますわ"],
-    } },
-];
-
-const COLLECTOR = {
-  id: "collector", name: "外套の蒐集家", icon: "🕯️",
-  appear: "……夜分に失礼。硝子の光が見えたものでね。",
-  want: (n) => `その『${n}』……私の許でこそ、あれは意味を持つ。`,
-  dealFair: "賢明だ。……良い夜を。",
-  dealHigh: "ふ……面白い店主だ。払おう。",
-  dealFail: "……欲をかいたな。縁がなかった。",
-  refuse: "……そうか。気が変わったら、灯りを点けておくといい。",
-};
-
-// ---------- 銘板セット ----------
-const SETS = [
-  { id: "set_bird",  name: "鳥類学の棚", groups: [["s_torikotsu"], ["s_zenshin"]], invite: "gakusha",
-    desc: "頭骨と全身骨格を並べて" },
-  { id: "set_wing",  name: "鱗翅と鞘翅", groups: [["s_chougaku"], ["s_kabutogaku"]], invite: "kifujin",
-    desc: "蝶と甲虫、二つの額装" },
-  { id: "set_snake", name: "蛇の二態",   groups: [["s_hebibin"], ["s_hebikotsu"]], invite: "koujika",
-    desc: "同じ蛇の、二つの姿" },
-  { id: "set_aqua",  name: "硝子の水槽", cat: "wet", count: 3, invite: "koujika",
-    desc: "液浸標本を三点" },
-  { id: "set_earth", name: "大地の記憶", groups: [["s_ammo"], ["s_suisho"]], invite: "gakusha",
-    desc: "化石と結晶を並べて" },
-  { id: "set_bones", name: "骸の行進",   cat: "bone", count: 3, invite: "koujika",
-    desc: "骨格標本を三点" },
-  { id: "set_garden",name: "匣の庭",     groups: [["s_terra", "s_hikariterra"], ["s_tenshi", "s_kabuto", "s_ga"]], invite: "gakusei",
-    desc: "緑の匣と、乾いた虫" },
-  { id: "set_night", name: "夜の帳",     groups: [["s_fukuroukotsu", "s_fukurouzen"], ["s_koumori", "s_ga", "s_gagaku"]], invite: "collector",
-    desc: "夜の住人たちを並べて" },
-];
-
-// ---------- 通り名 ----------
-const ALIASES = {
-  bone:    { name: "骸骨堂", invite: ["gakusha"] },
-  insect:  { name: "胡蝶堂", invite: ["kifujin"] },
-  wet:     { name: "玻璃堂", invite: ["koujika"] },
-  mineral: { name: "星石堂", invite: ["gakusha", "koujika"] },
-  craft:   { name: "匣庭堂", invite: ["gakusei"] },
-};
-
-const PRICE_MODES = {
-  strong:   { name: "強気", mult: 1.3, buy: 0.72, repBonus: 0, desc: "売価+30%・客足は鈍る" },
-  normal:   { name: "標準", mult: 1.0, buy: 1.0,  repBonus: 0, desc: "基準の値付け" },
-  discount: { name: "勉強", mult: 0.8, buy: 1.25, repBonus: 1, desc: "売価-20%・売れやすく評判も上がる" },
-};
-
-const RENT = 100, RENT_INTERVAL = 7, MAX_AP = 3;
+import {
+  SAVE_KEY, IMG_KEY, C,
+  MATERIALS, MAT_ORDER, CAT_NAME, TAG_NAME, SPECIMENS,
+  PROCESSES, procLevel, RECIPES, SPEC_PROC, SECONDARY,
+  SITES, SUPPLY_SHOP, SHELF_EXPAND, DECOR,
+  CUSTOMERS, COLLECTOR, SETS, ALIASES, PRICE_MODES,
+  RENT, RENT_INTERVAL, MAX_AP,
+} from "./data.js";
+import { storage } from "./storage.js";
+import { loadFileImages } from "./images.js";
 
 // ---------- ユーティリティ ----------
 const rnd = (n) => Math.floor(Math.random() * n);
@@ -269,8 +47,14 @@ function newGame() {
     custBought: {},
     alias: null, aliasHistory: [],
     offer: null, offerResult: null, collectorCd: 0,
+    apprentice: false,
+    trust: 0, // 蒐集家の信頼(内部値、-6〜+6。画面には出さない)
+    lastRent: RENT, // 前回支払った家賃額
   };
 }
+const clampTrust = (t) => Math.max(-6, Math.min(6, t));
+// 家賃の段階化: 家賃日の夜の評判で判定
+const rentFor = (rep) => (rep >= 40 ? 200 : rep >= 20 ? 150 : RENT);
 // v1セーブの取り込み
 function migrate(loaded) {
   const base = newGame();
@@ -286,6 +70,11 @@ function migrate(loaded) {
   g.aliasHistory = loaded.aliasHistory || [];
   g.offer = null; g.offerResult = null;
   g.collectorCd = loaded.collectorCd || 0;
+  g.apprentice = !!loaded.apprentice;
+  g.trust = typeof loaded.trust === "number" ? clampTrust(loaded.trust) : 0;
+  // 通り名を持たない旧セーブは、従来の判定(最多カテゴリ5個以上)で引き継ぐ
+  if (!("alias" in loaded)) g.alias = aliasOf(g.soldByCat);
+  g.lastRent = typeof loaded.lastRent === "number" ? loaded.lastRent : RENT;
   return g;
 }
 
@@ -342,6 +131,18 @@ function aliasOf(soldByCat) {
   }
   return bestN >= 5 ? best : null;
 }
+// 通り名の粘り: 未獲得なら最多カテゴリ(5個以上)で獲得。
+// 獲得済みなら、他カテゴリが現通り名カテゴリを3個以上上回った場合のみ交代
+function nextAlias(cur, soldByCat) {
+  if (!cur) return aliasOf(soldByCat);
+  const curN = soldByCat[cur] || 0;
+  let best = null, bestN = 0;
+  for (const [cat, n] of Object.entries(soldByCat)) {
+    if (cat === cur) continue;
+    if (n > bestN) { best = cat; bestN = n; }
+  }
+  return best && bestN >= curN + 3 ? best : cur;
+}
 function custLine(c, bought, kind) {
   const L = c.lines;
   if (kind === "buy") {
@@ -364,7 +165,7 @@ function simulateNight(g) {
   const sets = activeSets(shelf, g.shelfSize);
 
   let visitors = Math.min(10, 2 + Math.floor(g.rep / 8) + (g.decor.lamp ? 1 : 0) + (Math.random() < 0.5 ? 1 : 0));
-  const aliasCat = aliasOf(g.soldByCat);
+  const aliasCat = g.alias;
   const pool = CUSTOMERS.filter((c) => g.rep >= c.minRep).map((c) => {
     let w = c.weight;
     if (aliasCat && ALIASES[aliasCat].invite.includes(c.id)) w += 2;
@@ -383,11 +184,12 @@ function simulateNight(g) {
     const c = weightedPick(pool);
     const bought = custBought[c.id] || 0;
     const slots = shelf.map((id, i) => ({ id, i })).filter((s) => s.id && s.i < g.shelfSize);
-    if (!slots.length) { log.push({ t: "misc", cid: c.id, text: `${c.name}が覗いたが、棚は空だった。` }); continue; }
+    if (!slots.length) { log.push({ t: "misc", cid: c.id, text: `${c.name}が覗いたが、棚は空だった。`, line: null }); continue; }
 
     const afford = slots.filter((s) => priceAt(s.i) <= c.budget);
     if (!afford.length) {
-      log.push({ t: "misc", cid: c.id, text: `${c.name}「${custLine(c, bought, "poor")}」` });
+      const line = custLine(c, bought, "poor");
+      log.push({ t: "misc", cid: c.id, text: `${c.name}「${line}」`, line });
       continue;
     }
     const favs = afford.filter((s) => {
@@ -409,28 +211,42 @@ function simulateNight(g) {
       rep += 1 + (sp.tags.includes("rare") ? 1 : 0) + mode.repBonus;
       const big = price >= 300;
       const line = big ? custLine(c, bought, "big") : custLine(c, bought, "buy");
-      log.push({ t: "sale", cid: c.id, big, text: `${c.name}「${line}」— ${sp.icon} ${sp.name}を ${price}G で購入。` });
+      log.push({ t: "sale", cid: c.id, big, text: `${c.name}「${line}」— ${sp.icon} ${sp.name}を ${price}G で購入。`, line, itemId: target.id, price });
     } else {
-      log.push({ t: "misc", cid: c.id, text: `${c.name}「${custLine(c, bought, "pass")}」` });
+      const line = custLine(c, bought, "pass");
+      log.push({ t: "misc", cid: c.id, text: `${c.name}「${line}」`, line });
     }
   }
   if (!visitors) log.push({ t: "misc", text: "今夜は誰も来なかった。硝子が静かに光っている。" });
 
-  let rentText = null;
-  if (g.day % RENT_INTERVAL === 0) { gold -= RENT; rentText = `大家が来た。家賃 ${RENT}G を支払った。`; }
+  let rentText = null, rentPaid = null;
+  if (g.day % RENT_INTERVAL === 0) {
+    const rent = rentFor(g.rep + rep); // 家賃日の夜(営業終わり)の評判で判定
+    gold -= rent; rentPaid = rent;
+    rentText = rent > (g.lastRent != null ? g.lastRent : RENT)
+      ? `大家「景気が良さそうじゃないか、ええ?」— 家賃は ${rent}G になった。`
+      : `大家が来た。家賃 ${rent}G を支払った。`;
+  }
 
-  // 蒐集家の来訪判定
+  // 見習いの日当
+  let wageText = null;
+  if (g.apprentice) { gold -= 30; wageText = "見習いに日当 30G を払った。"; }
+
+  // 蒐集家の来訪判定(trustが負のときのみ出現率が減衰。正でも上げない)
   let offer = null;
   if (g.rep >= 18 && (g.collectorCd || 0) <= 0) {
     const nightSet = sets.some((s) => s.id === "set_night");
-    if (Math.random() < 0.22 + (nightSet ? 0.15 : 0)) {
+    let appearRate = 0.22 + (nightSet ? 0.15 : 0);
+    const trust = g.trust || 0;
+    if (trust < 0) appearRate *= 1 + trust / 8;
+    if (Math.random() < appearRate) {
       const shelfRares = shelf.map((id, i) => ({ id, i })).filter((s) => s.id && s.i < g.shelfSize && SPECIMENS[s.id].tags.includes("rare"));
       const stockRares = Object.keys(g.spec).filter((k) => g.spec[k] > 0 && SPECIMENS[k].tags.includes("rare"));
       if (shelfRares.length) { const t = pick(shelfRares); offer = { specId: t.id, source: "shelf", slot: t.i }; }
       else if (stockRares.length) { offer = { specId: pick(stockRares), source: "stock" }; }
     }
   }
-  return { log, gold, rep, sold, rentText, shelf, soldByCat, custBought, offer };
+  return { log, gold, rep, sold, rentText, rentPaid, wageText, shelf, soldByCat, custBought, offer };
 }
 
 // ---------- 画像 ----------
@@ -479,15 +295,50 @@ const Btn = ({ children, onClick, disabled, primary, style }) => (
 const TagChip = ({ t }) => (
   <span style={{ fontSize: 10, border: `1px solid ${C.brass}`, color: C.brass, borderRadius: 3, padding: "0 4px", marginLeft: 4 }}>{TAG_NAME[t]}</span>
 );
-const Portrait = ({ cid, imgs, size = 34 }) => {
+// 肖像: リポジトリ画像 → 画廊(アップロード) → 絵文字 の順
+const Portrait = ({ cid, imgs, fileImgs, size = 34 }) => {
+  const fileUrl = fileImgs && fileImgs.portraits && fileImgs.portraits[cid];
   const meta = imgs && imgs[cid];
   const fb = cid === "collector" ? COLLECTOR.icon : (CUSTOMERS.find((c) => c.id === cid) || {}).icon || "·";
-  if (!meta || !meta.data) return <span style={{ fontSize: Math.round(size * 0.62), width: size, textAlign: "center", flexShrink: 0 }}>{fb}</span>;
+  const src = fileUrl || (meta && meta.data);
+  if (!src) return <span style={{ fontSize: Math.round(size * 0.62), width: size, textAlign: "center", flexShrink: 0 }}>{fb}</span>;
+  const zoom = fileUrl ? 1 : (meta.zoom || 1.15);
   return (
     <span style={{ width: size, height: size, borderRadius: "50%", overflow: "hidden", display: "inline-block", border: `1px solid ${C.line}`, flexShrink: 0, background: "#000" }}>
-      <img src={meta.data} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", transform: `scale(${meta.zoom || 1.15})`, filter: "sepia(0.3) contrast(1.05) brightness(0.98)" }} />
+      <img src={src} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", transform: `scale(${zoom})`, filter: "sepia(0.3) contrast(1.05) brightness(0.98)" }} />
     </span>
   );
+};
+// 夜のカード用の大きな肖像(額縁風)。画像が無ければ絵文字を大きく
+const FramedPortrait = ({ cid, imgs, fileImgs }) => {
+  const fileUrl = fileImgs && fileImgs.portraits && fileImgs.portraits[cid];
+  const meta = imgs && imgs[cid];
+  const src = fileUrl || (meta && meta.data);
+  const fb = cid === "collector" ? COLLECTOR.icon : (CUSTOMERS.find((c) => c.id === cid) || {}).icon || "·";
+  const zoom = fileUrl ? 1 : (meta && meta.zoom) || 1.15;
+  return (
+    <div style={{ width: "40%", flexShrink: 0 }}>
+      <div style={{ border: `3px double ${C.brass}`, borderRadius: 4, padding: 3, background: "#0e0b08", boxShadow: "0 2px 10px rgba(0,0,0,0.45)" }}>
+        <div style={{ aspectRatio: "1 / 1", overflow: "hidden", borderRadius: 2, background: "#171310", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          {src
+            ? <img src={src} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", transform: `scale(${zoom})`, filter: "sepia(0.3) contrast(1.05) brightness(0.98)" }} />
+            : <span style={{ fontSize: 52 }}>{fb}</span>}
+        </div>
+      </div>
+    </div>
+  );
+};
+// 標本の絵柄: リポジトリ画像があれば正方形・角丸で、なければ絵文字
+const SpecIcon = ({ id, fileImgs, size = 20, emojiSize, style }) => {
+  const url = fileImgs && fileImgs.specimens && fileImgs.specimens[id];
+  if (url) return (
+    <img src={url} alt="" style={{
+      width: size, height: size, objectFit: "cover",
+      borderRadius: Math.max(3, Math.round(size * 0.14)),
+      display: "inline-block", verticalAlign: "middle", flexShrink: 0, ...style,
+    }} />
+  );
+  return <span style={{ fontSize: emojiSize || Math.round(size * 0.85), lineHeight: 1, ...style }}>{SPECIMENS[id].icon}</span>;
 };
 
 // ============================================================
@@ -498,38 +349,43 @@ export default function BoneAndGlass() {
   const [hasSave, setHasSave] = useState(false);
   const [g, setG] = useState(newGame);
   const [imgs, setImgs] = useState({});
+  const [fileImgs, setFileImgs] = useState(null);
   const [sel, setSel] = useState(null);
   const [shelfPickFor, setShelfPickFor] = useState(null);
   const [showBook, setShowBook] = useState(false);
   const [bookTab, setBookTab] = useState("spec");
   const [showGallery, setShowGallery] = useState(false);
+  const [showDecor, setShowDecor] = useState(false);
   const [toast, setToast] = useState(null);
+  // 夜のカード送り: idx=表示中の客, collapsed=「残りをまとめる」押下済み
+  const [nightView, setNightView] = useState({ idx: 0, collapsed: false });
 
   useEffect(() => {
     (async () => {
-      try { const r = await window.storage.get(SAVE_KEY); if (r && r.value) setHasSave(true); } catch (e) {}
-      try { const r = await window.storage.get(IMG_KEY); if (r && r.value) setImgs(JSON.parse(r.value)); } catch (e) {}
+      try { const r = await storage.get(SAVE_KEY); if (r && r.value) setHasSave(true); } catch (e) {}
+      try { const r = await storage.get(IMG_KEY); if (r && r.value) setImgs(JSON.parse(r.value)); } catch (e) {}
       setScreen("title");
     })();
+    loadFileImages().then(setFileImgs).catch(() => {});
   }, []);
 
   const save = useCallback(async (state) => {
-    try { await window.storage.set(SAVE_KEY, JSON.stringify(state)); } catch (e) {}
+    try { await storage.set(SAVE_KEY, JSON.stringify(state)); } catch (e) {}
   }, []);
   const saveImgs = async (next) => {
     setImgs(next);
-    try { await window.storage.set(IMG_KEY, JSON.stringify(next)); } catch (e) { flash("画像の保存に失敗した…容量かも"); }
+    try { await storage.set(IMG_KEY, JSON.stringify(next)); } catch (e) { flash("画像の保存に失敗した…容量かも"); }
   };
 
   const loadSave = async () => {
     try {
-      const r = await window.storage.get(SAVE_KEY);
+      const r = await storage.get(SAVE_KEY);
       if (r && r.value) { setG(migrate(JSON.parse(r.value))); setScreen("game"); }
     } catch (e) { setToast("記録が読み込めなかった…"); }
   };
   const startNew = async () => {
     const ng = newGame(); setG(ng); setScreen("game");
-    try { await window.storage.set(SAVE_KEY, JSON.stringify(ng)); } catch (e) {}
+    try { await storage.set(SAVE_KEY, JSON.stringify(ng)); } catch (e) {}
   };
   const flash = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2400); };
 
@@ -563,20 +419,21 @@ export default function BoneAndGlass() {
 
   // ---- 昼 ----
   const craftables = (id) => RECIPES.filter((r) => r.from === id);
-  const doCraft = (r) => {
+  // n=2 は熟練Lv3特典の「2個仕立てる」(1APで2個、素材・資材を2セット消費)
+  const doCraft = (r, n = 1) => {
     if (g.ap <= 0) return flash("今日の作業はもう終わり");
     const p = PROCESSES[r.proc];
     const inv = { ...g.inv }; const spec = { ...g.spec };
-    if (SPECIMENS[r.from]) { spec[r.from] -= 1; if (spec[r.from] <= 0) delete spec[r.from]; }
-    else { inv[r.from] -= 1; if (inv[r.from] <= 0) delete inv[r.from]; }
-    if (p.needs) { inv[p.needs] -= 1; if (inv[p.needs] <= 0) delete inv[p.needs]; }
-    spec[r.to] = (spec[r.to] || 0) + 1;
+    if (SPECIMENS[r.from]) { spec[r.from] -= n; if (spec[r.from] <= 0) delete spec[r.from]; }
+    else { inv[r.from] -= n; if (inv[r.from] <= 0) delete inv[r.from]; }
+    if (p.needs) { inv[p.needs] -= n; if (inv[p.needs] <= 0) delete inv[p.needs]; }
+    spec[r.to] = (spec[r.to] || 0) + n;
     const isNew = !g.known.includes(r.id);
     const known = isNew ? [...g.known, r.id] : g.known;
-    const exp = { ...g.procExp, [r.proc]: (g.procExp[r.proc] || 0) + 1 };
+    const exp = { ...g.procExp, [r.proc]: (g.procExp[r.proc] || 0) + n };
     const lvUp = procLevel(exp[r.proc]) > procLevel(g.procExp[r.proc] || 0);
     const made = SPECIMENS[r.to];
-    const craftLog = [{ text: `${p.name} → ${made.icon} ${made.name}${isNew ? "(新発見!)" : ""}`, isNew }, ...g.craftLog].slice(0, 6);
+    const craftLog = [{ text: `${p.name} → ${made.icon} ${made.name}${n === 2 ? " ×2" : ""}${isNew ? "(新発見!)" : ""}`, isNew }, ...g.craftLog].slice(0, 6);
     setG({ ...g, inv, spec, known, ap: g.ap - 1, craftLog, procExp: exp });
     setSel(null);
     if (isNew) flash(`新しい標本を作り出した — ${made.name}`);
@@ -606,9 +463,10 @@ export default function BoneAndGlass() {
   const openStore = () => {
     const res = simulateNight(g);
     const log = [...res.log];
+    if (res.wageText) log.push({ t: "rent", text: res.wageText });
     if (res.rentText) log.push({ t: "rent", text: res.rentText });
-    // 通り名の変化
-    const oldAlias = aliasOf(g.soldByCat), newAlias = aliasOf(res.soldByCat);
+    // 通り名の変化(獲得済みの通り名には粘りがある)
+    const oldAlias = g.alias, newAlias = nextAlias(g.alias, res.soldByCat);
     let aliasHistory = g.aliasHistory;
     if (newAlias && newAlias !== oldAlias) {
       const nm = ALIASES[newAlias].name;
@@ -623,7 +481,9 @@ export default function BoneAndGlass() {
       soldByCat: res.soldByCat, custBought: res.custBought,
       alias: newAlias, aliasHistory,
       offer: res.offer, offerResult: null,
+      lastRent: res.rentPaid != null ? res.rentPaid : g.lastRent,
     });
+    setNightView({ idx: 0, collapsed: false });
   };
 
   // ---- 蒐集家との交渉 ----
@@ -640,33 +500,49 @@ export default function BoneAndGlass() {
     if (choice === "fair") {
       const st = removeItem(g);
       setG({ ...st, gold: st.gold + fair, rep: st.rep + 3, nightEarn: st.nightEarn + fair, totalEarn: st.totalEarn + fair, totalSold: st.totalSold + 1,
-        offer: null, offerResult: `${sp.name}を ${fair}G で譲った。蒐集家「${COLLECTOR.dealFair}」`, collectorCd: 2 });
+        offer: null, offerResult: `${sp.name}を ${fair}G で譲った。蒐集家「${COLLECTOR.dealFair}」`, collectorCd: 2,
+        trust: clampTrust((g.trust || 0) + 1) });
     } else if (choice === "high") {
-      if (Math.random() < 0.6) {
+      // ふっかけ成功率: 高額品ほど通りにくく、信頼が良好だと通りやすい(上限0.85)
+      const trust = g.trust || 0;
+      const highChance = Math.min(0.85,
+        Math.max(0.35, Math.min(0.70, 0.75 - base / 2000)) + Math.max(0, trust) * 0.04);
+      if (Math.random() < highChance) {
         const st = removeItem(g);
         setG({ ...st, gold: st.gold + high, rep: st.rep + 2, nightEarn: st.nightEarn + high, totalEarn: st.totalEarn + high, totalSold: st.totalSold + 1,
-          offer: null, offerResult: `強気の値をつけた……通った。${sp.name}を ${high}G で売却。蒐集家「${COLLECTOR.dealHigh}」`, collectorCd: 2 });
+          offer: null, offerResult: `強気の値をつけた……通った。${sp.name}を ${high}G で売却。蒐集家「${COLLECTOR.dealHigh}」`, collectorCd: 2,
+          trust: clampTrust(trust + 1) });
       } else {
-        setG({ ...g, offer: null, offerResult: `強気の値をつけた……蒐集家「${COLLECTOR.dealFail}」外套が夜に溶けていった。`, collectorCd: 4 });
+        setG({ ...g, offer: null, offerResult: `強気の値をつけた……蒐集家「${COLLECTOR.dealFail}」外套が夜に溶けていった。`, collectorCd: 4,
+          trust: clampTrust(trust - 3) });
       }
     } else {
-      setG({ ...g, offer: null, offerResult: `断った。蒐集家「${COLLECTOR.refuse}」`, collectorCd: 1 });
+      setG({ ...g, offer: null, offerResult: `断った。蒐集家「${COLLECTOR.refuse}」`, collectorCd: 1,
+        trust: clampTrust((g.trust || 0) - 1) });
     }
+  };
+
+  // ---- 見習い ----
+  const toggleApprentice = () => {
+    const hire = !g.apprentice;
+    setG({ ...g, apprentice: hire, ap: MAX_AP + (hire ? 1 : 0) });
   };
 
   // ---- 翌朝 ----
   const nextDay = () => {
     const ng = {
-      ...g, day: g.day + 1, phase: "morning", ap: MAX_AP,
+      ...g, day: g.day + 1, phase: "morning", ap: MAX_AP + (g.apprentice ? 1 : 0),
       nightLog: [], nightRent: null, craftLog: [], offer: null, offerResult: null,
       collectorCd: Math.max(0, (g.collectorCd || 0) - 1),
+      // 信頼は負のときだけ毎朝+0.5ずつ0へ回復(正の値は減衰しない)
+      trust: (g.trust || 0) < 0 ? Math.min(0, (g.trust || 0) + 0.5) : (g.trust || 0),
     };
     setG(ng); save(ng);
   };
 
   const resetAll = async () => {
     if (!window.confirm("記録を消して最初からはじめる?(画像は残ります)")) return;
-    try { await window.storage.delete(SAVE_KEY); } catch (e) {}
+    try { await storage.delete(SAVE_KEY); } catch (e) {}
     startNew();
   };
 
@@ -677,10 +553,12 @@ export default function BoneAndGlass() {
     </div>
   );
 
+  const shopBg = (fileImgs && fileImgs.shop) || (imgs.shop && imgs.shop.data) || null;
+
   if (screen === "title") return (
     <div style={{ minHeight: "100vh", background: C.bg, position: "relative", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: "Georgia, 'Yu Mincho', serif", padding: 24, overflow: "hidden" }}>
-      {imgs.shop && imgs.shop.data && (
-        <div style={{ position: "absolute", inset: 0, backgroundImage: `url(${imgs.shop.data})`, backgroundSize: "cover", backgroundPosition: "center", opacity: 0.35, filter: "sepia(0.2) brightness(0.8)" }} />
+      {shopBg && (
+        <div style={{ position: "absolute", inset: 0, backgroundImage: `url(${shopBg})`, backgroundSize: "cover", backgroundPosition: "center", opacity: 0.35, filter: "sepia(0.2) brightness(0.8)" }} />
       )}
       <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to bottom, rgba(20,17,13,0.3), rgba(20,17,13,0.92))" }} />
       <div style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "center", color: C.ivory }}>
@@ -706,7 +584,32 @@ export default function BoneAndGlass() {
   const knownSpecs = new Set(RECIPES.filter((r) => g.known.includes(r.id)).map((r) => r.to));
   const curSets = activeSets(g.shelf, g.shelfSize);
   const daysToRent = (RENT_INTERVAL - (g.day % RENT_INTERVAL)) % RENT_INTERVAL;
-  const aliasCat = aliasOf(g.soldByCat);
+  const aliasCat = g.alias;
+
+  // 夜のカード送り用: 客のいるログ(カード対象)とそれ以外(家賃・通り名など、サマリ行き)
+  const nightCust = g.nightLog.filter((l) => l.cid);
+  const nightSys = g.nightLog.filter((l) => !l.cid);
+  const nightInCards = g.phase === "night" && !nightView.collapsed && nightView.idx < nightCust.length;
+  // カード送り中の売上累計(表示済みカードまで)
+  const nightEarnSoFar = nightCust.slice(0, nightView.idx + 1)
+    .filter((l) => l.t === "sale").reduce((s, l) => s + (l.price || 0), 0);
+  const nightAdvance = () => setNightView((v) => ({ ...v, idx: v.idx + 1 }));
+  const nightCollapse = () => setNightView((v) => ({ ...v, collapsed: true }));
+  // 現行の一覧ログ形式(まとめ表示・サマリで使う)
+  const nightLogLine = (l, i) => (
+    <div key={i} style={{
+      display: "flex", alignItems: "flex-start", gap: 8,
+      fontSize: 13, lineHeight: 1.7,
+      color: l.t === "sale" ? C.ivory : l.t === "rent" ? C.red : l.t === "alias" ? C.brass : C.dim,
+      borderLeft: `2px solid ${l.big ? "#e0b96a" : l.t === "sale" ? C.brass : l.t === "rent" ? C.red : l.t === "alias" ? C.brass : C.line}`,
+      paddingLeft: 8,
+      background: l.big ? "rgba(201,161,94,0.08)" : "transparent",
+      borderRadius: l.big ? 4 : 0, paddingTop: l.big ? 4 : 0, paddingBottom: l.big ? 4 : 0,
+    }}>
+      {l.cid && <Portrait cid={l.cid} imgs={imgs} fileImgs={fileImgs} size={30} />}
+      <span>{l.text}</span>
+    </div>
+  );
 
   // 二次加工マーク: '⚒'=発見済みの次加工あり '?'=未知の次加工あり
   const nextMark = (specId) => {
@@ -728,13 +631,19 @@ export default function BoneAndGlass() {
           </div>
           <div style={{ textAlign: "right", fontSize: 13 }}>
             <div style={{ color: g.gold < 0 ? C.red : C.brass, fontVariantNumeric: "tabular-nums" }}>{g.gold} G{g.gold < 0 ? "(借金)" : ""}</div>
-            <div style={{ color: C.dim }}>評判 {g.rep} · <span style={{ color: daysToRent === 0 ? C.red : C.dim }}>{daysToRent === 0 ? "今夜家賃" : `家賃まで${daysToRent}日`}</span></div>
+            <div style={{ color: C.dim }}>評判 {g.rep} · <span style={{ color: daysToRent === 0 ? C.red : C.dim }}>{daysToRent === 0 ? "今夜家賃" : `家賃${rentFor(g.rep)}Gまで${daysToRent}日`}</span></div>
           </div>
         </div>
 
         {/* ===== 朝 ===== */}
         {g.phase === "morning" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <Panel style={{ background: "transparent" }}>
+              <div style={{ fontSize: 11, color: C.dim, marginBottom: 4 }}>倉庫の素材(採集地の順)</div>
+              <div style={{ fontSize: 13, lineHeight: 1.9 }}>
+                {invEntries.length ? invEntries.map(([k, v]) => <span key={k} style={{ marginRight: 10, whiteSpace: "nowrap" }}>{itemIcon(k)}{itemName(k)}×{v}</span>) : <span style={{ color: C.dim }}>空っぽだ</span>}
+              </div>
+            </Panel>
             <div style={{ fontSize: 12, color: C.dim, lineHeight: 1.8 }}>夜のうちに届いた依頼票に目を通す。今日はどこへ人をやろうか。</div>
             {SITES.map((s) => {
               const locked = s.minRep && g.rep < s.minRep;
@@ -761,29 +670,19 @@ export default function BoneAndGlass() {
                 ))}
               </div>
             </Panel>
-            <Panel>
-              <div style={{ fontSize: 15, marginBottom: 6 }}>店の設え <span style={{ fontSize: 11, color: C.dim }}>儲けの使い道</span></div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {SHELF_EXPAND[g.shelfSize + 1] && (
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div style={{ fontSize: 13 }}>硝子棚の増設({g.shelfSize}→{g.shelfSize + 1}枠)<div style={{ fontSize: 11, color: C.dim }}>大工に頼んで棚を継ぎ足す</div></div>
-                    <Btn onClick={expandShelf} disabled={g.gold < SHELF_EXPAND[g.shelfSize + 1]}>{SHELF_EXPAND[g.shelfSize + 1]}G</Btn>
+            {g.rep >= 15 && (
+              <Panel>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div>
+                    <div style={{ fontSize: 15 }}>見習い <span style={{ fontSize: 11, color: C.dim }}>日当30G</span></div>
+                    <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>
+                      {g.apprentice ? "今日は店の手伝いに入っている(作業+1)" : "今日は休ませている"}
+                    </div>
                   </div>
-                )}
-                {DECOR.map((d) => (
-                  <div key={d.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", opacity: g.decor[d.id] ? 0.55 : 1 }}>
-                    <div style={{ fontSize: 13 }}>{d.icon} {d.name}<div style={{ fontSize: 11, color: C.dim }}>{d.desc}</div></div>
-                    {g.decor[d.id] ? <span style={{ fontSize: 12, color: C.glass }}>設置済</span> : <Btn onClick={() => buyDecor(d)} disabled={g.gold < d.cost}>{d.cost}G</Btn>}
-                  </div>
-                ))}
-              </div>
-            </Panel>
-            <Panel style={{ background: "transparent" }}>
-              <div style={{ fontSize: 11, color: C.dim, marginBottom: 4 }}>倉庫の素材(採集地の順)</div>
-              <div style={{ fontSize: 13, lineHeight: 1.9 }}>
-                {invEntries.length ? invEntries.map(([k, v]) => <span key={k} style={{ marginRight: 10, whiteSpace: "nowrap" }}>{itemIcon(k)}{itemName(k)}×{v}</span>) : <span style={{ color: C.dim }}>空っぽだ</span>}
-              </div>
-            </Panel>
+                  <Btn onClick={toggleApprentice}>{g.apprentice ? "休ませる" : "雇う"}</Btn>
+                </div>
+              </Panel>
+            )}
           </div>
         )}
 
@@ -792,7 +691,7 @@ export default function BoneAndGlass() {
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div style={{ fontSize: 12, color: C.dim }}>素材を選んで、仕立て方を決める。</div>
-              <div style={{ fontSize: 13, color: C.brass }}>作業残り {"●".repeat(g.ap)}{"○".repeat(MAX_AP - g.ap)}</div>
+              <div style={{ fontSize: 13, color: C.brass }}>作業残り {"●".repeat(g.ap)}{"○".repeat(Math.max(0, MAX_AP + (g.apprentice ? 1 : 0) - g.ap))}</div>
             </div>
 
             <Panel>
@@ -825,10 +724,13 @@ export default function BoneAndGlass() {
                   const known = r && g.known.includes(r.id);
                   const stocked = r && (!p.needs || (g.inv[p.needs] || 0) > 0);
                   const disabled = !sel || !possible || !lvOk || !stocked || g.ap <= 0;
+                  // Lv3特典: 素材・資材が2セットあれば1APで2個
+                  const fromCount = r ? (SPECIMENS[r.from] ? (g.spec[r.from] || 0) : (g.inv[r.from] || 0)) : 0;
+                  const canDouble = !disabled && lv >= 3 && fromCount >= 2 && (!p.needs || (g.inv[p.needs] || 0) >= 2);
                   return (
-                    <button key={pid} onClick={() => r && lvOk && stocked && doCraft(r)} disabled={disabled}
+                    <div key={pid}
                       style={{
-                        fontFamily: "inherit", textAlign: "left", cursor: disabled ? "default" : "pointer",
+                        textAlign: "left",
                         background: disabled ? "transparent" : C.panelHi,
                         border: `1px solid ${possible && sel ? C.brass : C.line}`,
                         opacity: sel && !possible ? 0.35 : 1,
@@ -836,6 +738,9 @@ export default function BoneAndGlass() {
                       }}>
                       <span style={{ color: possible && sel ? C.brass : C.ivory }}>{p.name}</span>
                       <span style={{ fontSize: 10, color: C.dim, marginLeft: 6 }}>Lv{lv}</span>
+                      {r && (r.minLv || 1) >= 2 && (
+                        <span style={{ fontSize: 10, marginLeft: 6, padding: "0 4px", borderRadius: 3, border: `1px solid ${lvOk ? C.line : C.red}`, color: lvOk ? C.dim : C.red }}>要Lv{r.minLv}</span>
+                      )}
                       {p.needs && <span style={{ fontSize: 11, color: (g.inv[p.needs] || 0) > 0 ? C.glass : C.red, marginLeft: 6 }}>要 {itemIcon(p.needs)}{itemName(p.needs)}(所持{g.inv[p.needs] || 0})</span>}
                       <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>
                         {!sel ? p.desc
@@ -844,7 +749,13 @@ export default function BoneAndGlass() {
                           : known ? `→ ${SPECIMENS[r.to].icon} ${SPECIMENS[r.to].name}(基準 ${round5(basePrice(g, r.to))}G)`
                           : "→ ??? 何ができるかは、やってみないと分からない"}
                       </div>
-                    </button>
+                      {sel && possible && (
+                        <div style={{ display: "flex", gap: 6, marginTop: 7 }}>
+                          <Btn primary={!disabled} disabled={disabled} onClick={() => doCraft(r, 1)} style={{ fontSize: 12, padding: "6px 12px" }}>仕立てる</Btn>
+                          <Btn disabled={!canDouble} onClick={() => doCraft(r, 2)} style={{ fontSize: 12, padding: "6px 12px" }}>2個仕立てる</Btn>
+                        </div>
+                      )}
+                    </div>
                   );
                 })}
               </div>
@@ -889,7 +800,7 @@ export default function BoneAndGlass() {
                       }}>
                       {id ? (
                         <>
-                          <div style={{ fontSize: 24 }}>{SPECIMENS[id].icon}</div>
+                          <SpecIcon id={id} fileImgs={fileImgs} size={40} emojiSize={24} />
                           <div style={{ fontSize: 10, textAlign: "center", lineHeight: 1.3 }}>{SPECIMENS[id].name}</div>
                           <div style={{ fontSize: 11, color: inSet ? C.brass : bonus ? C.glass : C.brass, borderTop: `1px solid ${C.line}`, paddingTop: 2, width: "100%", textAlign: "center", fontVariantNumeric: "tabular-nums" }}>
                             {shelfPrice(g, i, curSets)}G{inSet ? " ✦" : bonus ? " ↑" : ""}
@@ -922,7 +833,7 @@ export default function BoneAndGlass() {
                     const mk = nextMark(k);
                     return (
                       <Btn key={k} onClick={() => placeOnShelf(shelfPickFor, k)} style={{ fontSize: 12 }}>
-                        {SPECIMENS[k].icon} {SPECIMENS[k].name} ×{v}
+                        <SpecIcon id={k} fileImgs={fileImgs} size={18} emojiSize={13} /> {SPECIMENS[k].name} ×{v}
                         {SPECIMENS[k].tags.map((t) => <TagChip key={t} t={t} />)}
                         {mk && <span style={{ color: C.glass, marginLeft: 4 }}>{mk}</span>}
                       </Btn>
@@ -951,27 +862,63 @@ export default function BoneAndGlass() {
         )}
 
         {/* ===== 夜 ===== */}
-        {g.phase === "night" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <Panel>
-              <div style={{ fontSize: 11, color: C.dim, marginBottom: 8, letterSpacing: "0.2em" }}>本日の営業</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                {g.nightLog.map((l, i) => (
-                  <div key={i} style={{
-                    display: "flex", alignItems: "flex-start", gap: 8,
-                    fontSize: 13, lineHeight: 1.7,
-                    color: l.t === "sale" ? C.ivory : l.t === "rent" ? C.red : l.t === "alias" ? C.brass : C.dim,
-                    borderLeft: `2px solid ${l.big ? "#e0b96a" : l.t === "sale" ? C.brass : l.t === "rent" ? C.red : l.t === "alias" ? C.brass : C.line}`,
-                    paddingLeft: 8,
-                    background: l.big ? "rgba(201,161,94,0.08)" : "transparent",
-                    borderRadius: l.big ? 4 : 0, paddingTop: l.big ? 4 : 0, paddingBottom: l.big ? 4 : 0,
-                  }}>
-                    {l.cid && <Portrait cid={l.cid} imgs={imgs} size={30} />}
-                    <span>{l.text}</span>
-                  </div>
-                ))}
+        {g.phase === "night" && nightInCards && (() => {
+          const l = nightCust[nightView.idx];
+          const cust = CUSTOMERS.find((c) => c.id === l.cid);
+          return (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                <div style={{ fontSize: 11, color: C.dim, letterSpacing: "0.2em" }}>本日の営業</div>
+                <div style={{ fontSize: 11, color: C.dim, fontVariantNumeric: "tabular-nums" }}>{nightView.idx + 1} / {nightCust.length} 組</div>
               </div>
-              <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 10, paddingTop: 8, fontSize: 14, display: "flex", justifyContent: "space-between" }}>
+              <div onClick={nightAdvance} style={{ cursor: "pointer" }}>
+                <Panel style={l.big ? { borderColor: "#e0b96a", boxShadow: "0 0 14px rgba(201,161,94,0.15)" } : null}>
+                  <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                    <FramedPortrait cid={l.cid} imgs={imgs} fileImgs={fileImgs} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 15, letterSpacing: "0.1em", marginBottom: 6 }}>{cust ? cust.name : ""}</div>
+                      <div style={{ fontSize: 13, lineHeight: 1.9, color: l.line ? C.ivory : C.dim }}>
+                        {l.line ? `「${l.line}」` : l.text}
+                      </div>
+                    </div>
+                  </div>
+                  {l.t === "sale" && (
+                    <div style={{ marginTop: 10, borderTop: `1px solid ${C.line}`, paddingTop: 8, display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+                      <SpecIcon id={l.itemId} fileImgs={fileImgs} size={26} emojiSize={16} />
+                      <span>{SPECIMENS[l.itemId].name}</span>
+                      <span style={{ marginLeft: "auto", color: C.brass, fontVariantNumeric: "tabular-nums" }}>{l.price} G</span>
+                    </div>
+                  )}
+                </Panel>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <Btn onClick={nightCollapse} style={{ fontSize: 12 }}>残りをまとめる</Btn>
+                <Btn primary onClick={nightAdvance} style={{ marginLeft: "auto" }}>次へ →</Btn>
+              </div>
+              <div style={{ position: "fixed", right: 12, bottom: 70, background: "rgba(31,26,19,0.95)", border: `1px solid ${C.brass}`, borderRadius: 4, padding: "5px 10px", fontSize: 12, color: C.brass, fontVariantNumeric: "tabular-nums", zIndex: 40 }}>
+                売上 {nightEarnSoFar} G
+              </div>
+            </div>
+          );
+        })()}
+        {g.phase === "night" && !nightInCards && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {nightView.collapsed && nightCust.slice(nightView.idx).length > 0 && (
+              <Panel>
+                <div style={{ fontSize: 11, color: C.dim, marginBottom: 8, letterSpacing: "0.2em" }}>そのあとの客</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                  {nightCust.slice(nightView.idx).map(nightLogLine)}
+                </div>
+              </Panel>
+            )}
+            <Panel>
+              <div style={{ fontSize: 11, color: C.dim, marginBottom: 8, letterSpacing: "0.2em" }}>本日の勘定</div>
+              {nightSys.length > 0 && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 7, marginBottom: 8 }}>
+                  {nightSys.map(nightLogLine)}
+                </div>
+              )}
+              <div style={{ borderTop: `1px solid ${C.line}`, paddingTop: 8, fontSize: 14, display: "flex", justifyContent: "space-between" }}>
                 <span style={{ color: C.dim }}>本日の売上</span>
                 <span style={{ color: C.brass, fontVariantNumeric: "tabular-nums" }}>{g.nightEarn} G</span>
               </div>
@@ -982,14 +929,16 @@ export default function BoneAndGlass() {
               const sp = SPECIMENS[g.offer.specId];
               const base = basePrice(g, g.offer.specId);
               const fair = round5(base * 1.6), high = round5(base * 2.2);
+              const trust = g.trust || 0;
+              const appearLine = trust <= -2 ? COLLECTOR.appearCold : trust >= 2 ? COLLECTOR.appearWarm : COLLECTOR.appear;
               return (
                 <Panel style={{ borderColor: C.night }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-                    <Portrait cid="collector" imgs={imgs} size={40} />
+                    <Portrait cid="collector" imgs={imgs} fileImgs={fileImgs} size={40} />
                     <div style={{ fontSize: 12, color: C.night, letterSpacing: "0.15em" }}>閉店後、扉が叩かれた</div>
                   </div>
                   <div style={{ fontSize: 13, lineHeight: 1.9, color: C.ivory }}>
-                    {COLLECTOR.name}「{COLLECTOR.appear}」<br />
+                    {COLLECTOR.name}「{appearLine}」<br />
                     「{COLLECTOR.want(sp.name)}」
                   </div>
                   <div style={{ fontSize: 11, color: C.dim, margin: "6px 0" }}>{sp.icon} {sp.name}(基準 {round5(base)}G)を望んでいる</div>
@@ -1007,7 +956,7 @@ export default function BoneAndGlass() {
               </Panel>
             )}
 
-            {daysToRent === 1 && <div style={{ fontSize: 12, color: C.red, textAlign: "center" }}>明日は家賃の日({RENT}G)。</div>}
+            {daysToRent === 1 && <div style={{ fontSize: 12, color: C.red, textAlign: "center" }}>明日は家賃の日({rentFor(g.rep)}G)。</div>}
 
             {g.day % 30 === 0 && (
               <Panel style={{ borderColor: C.brass }}>
@@ -1029,6 +978,7 @@ export default function BoneAndGlass() {
           <div style={{ maxWidth: 560, margin: "0 auto", display: "flex", gap: 8, alignItems: "center" }}>
             <Btn onClick={() => { setBookTab("spec"); setShowBook(true); }} style={{ fontSize: 12, padding: "8px 10px" }}>図鑑 {knownSpecs.size}/{Object.keys(SPECIMENS).length}</Btn>
             <Btn onClick={() => setShowGallery(true)} style={{ fontSize: 12, padding: "8px 10px" }}>画廊</Btn>
+            <Btn onClick={() => setShowDecor(true)} style={{ fontSize: 12, padding: "8px 10px" }}>設え</Btn>
             <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
               {g.phase === "morning" && <Btn primary onClick={() => setG({ ...g, phase: "workshop" })}>工房へ →</Btn>}
               {g.phase === "workshop" && <Btn primary onClick={() => { setSel(null); setG({ ...g, phase: "shelf" }); }}>陳列へ →</Btn>}
@@ -1038,7 +988,7 @@ export default function BoneAndGlass() {
                   <Btn primary onClick={openStore}>開店する</Btn>
                 </>
               )}
-              {g.phase === "night" && <Btn primary onClick={nextDay} disabled={!!g.offer}>翌朝へ →</Btn>}
+              {g.phase === "night" && <Btn primary onClick={nextDay} disabled={!!g.offer || nightInCards}>翌朝へ →</Btn>}
             </div>
           </div>
         </div>
@@ -1065,12 +1015,20 @@ export default function BoneAndGlass() {
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
                     {Object.entries(SPECIMENS).map(([id, s]) => {
                       const found = knownSpecs.has(id);
+                      const recipe = found ? RECIPES.find((r) => r.to === id) : null;
                       return (
                         <div key={id} style={{ border: `1px solid ${C.line}`, borderRadius: 5, padding: 8, opacity: found ? 1 : 0.45 }}>
-                          <div style={{ fontSize: 13 }}>{found ? s.icon : "▪"} {found ? s.name : "?????"}</div>
+                          <div style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 5 }}>
+                            {found ? <SpecIcon id={id} fileImgs={fileImgs} size={28} emojiSize={13} /> : "▪"} <span>{found ? s.name : "?????"}</span>
+                          </div>
                           <div style={{ fontSize: 10, color: C.dim, marginTop: 2 }}>
                             {found ? <>{CAT_NAME[s.cat]} · {s.price}G{s.tags.map((t) => <TagChip key={t} t={t} />)}</> : "未発見"}
                           </div>
+                          {recipe && (
+                            <div style={{ fontSize: 10, color: C.dim, marginTop: 2 }}>
+                              仕立て: {PROCESSES[recipe.proc].name}{(recipe.minLv || 1) >= 2 ? ` Lv${recipe.minLv}` : ""}
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -1112,6 +1070,32 @@ export default function BoneAndGlass() {
           </div>
         )}
 
+        {/* ===== 設え(棚増設・内装) ===== */}
+        {showDecor && (
+          <div onClick={() => setShowDecor(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, zIndex: 50 }}>
+            <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.brass}`, borderRadius: 8, padding: 16, maxWidth: 480, width: "100%", maxHeight: "82vh", overflowY: "auto" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                <div style={{ letterSpacing: "0.25em", color: C.brass, fontSize: 13 }}>店の設え — 儲けの使い道</div>
+                <button onClick={() => setShowDecor(false)} style={{ background: "none", border: "none", color: C.dim, cursor: "pointer", fontFamily: "inherit" }}>閉じる</button>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
+                {SHELF_EXPAND[g.shelfSize + 1] && (
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div style={{ fontSize: 13 }}>硝子棚の増設({g.shelfSize}→{g.shelfSize + 1}枠)<div style={{ fontSize: 11, color: C.dim }}>大工に頼んで棚を継ぎ足す</div></div>
+                    <Btn onClick={expandShelf} disabled={g.gold < SHELF_EXPAND[g.shelfSize + 1]}>{SHELF_EXPAND[g.shelfSize + 1]}G</Btn>
+                  </div>
+                )}
+                {DECOR.map((d) => (
+                  <div key={d.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", opacity: g.decor[d.id] ? 0.55 : 1 }}>
+                    <div style={{ fontSize: 13 }}>{d.icon} {d.name}<div style={{ fontSize: 11, color: C.dim }}>{d.desc}</div></div>
+                    {g.decor[d.id] ? <span style={{ fontSize: 12, color: C.glass }}>設置済</span> : <Btn onClick={() => buyDecor(d)} disabled={g.gold < d.cost}>{d.cost}G</Btn>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ===== 画廊(画像設定) ===== */}
         {showGallery && (
           <div onClick={() => setShowGallery(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, zIndex: 50 }}>
@@ -1130,10 +1114,10 @@ export default function BoneAndGlass() {
                     <div key={slot.id} style={{ border: `1px solid ${C.line}`, borderRadius: 5, padding: 8, display: "flex", gap: 10, alignItems: "center" }}>
                       {slot.wide ? (
                         <span style={{ width: 84, height: 48, borderRadius: 4, overflow: "hidden", background: "#000", flexShrink: 0, border: `1px solid ${C.line}`, display: "inline-block" }}>
-                          {meta && meta.data ? <img src={meta.data} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", filter: "sepia(0.2)" }} /> : null}
+                          {shopBg ? <img src={shopBg} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", filter: "sepia(0.2)" }} /> : null}
                         </span>
                       ) : (
-                        <Portrait cid={slot.id} imgs={imgs} size={48} />
+                        <Portrait cid={slot.id} imgs={imgs} fileImgs={fileImgs} size={48} />
                       )}
                       <div style={{ flex: 1 }}>
                         <div style={{ fontSize: 13 }}>{slot.name}</div>

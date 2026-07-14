@@ -141,7 +141,7 @@ function aliasOf(soldByCat) {
   for (const [cat, n] of Object.entries(soldByCat)) {
     if (n > bestN) { best = cat; bestN = n; }
   }
-  return bestN >= 5 ? best : null;
+  return bestN >= 10 ? best : null;
 }
 // 通り名の粘り: 未獲得なら最多カテゴリ(5個以上)で獲得。
 // 獲得済みなら、他カテゴリが現通り名カテゴリを3個以上上回った場合のみ交代
@@ -176,7 +176,8 @@ function simulateNight(g) {
   const mode = PRICE_MODES[g.priceMode];
   const sets = activeSets(shelf, g.shelfSize);
 
-  let visitors = Math.min(10, 2 + Math.floor(g.rep / 8) + (g.decor.lamp ? 1 : 0) + (Math.random() < 0.5 ? 1 : 0));
+  // 来客数の上限は棚数に連動(棚6→最大8人、棚9→最大11人)
+  let visitors = Math.min(g.shelfSize + 2, 2 + Math.floor(g.rep / 8) + (g.decor.lamp ? 1 : 0) + (Math.random() < 0.5 ? 1 : 0));
   const aliasCat = g.alias;
   const pool = CUSTOMERS.filter((c) => g.rep >= c.minRep && (!c.flag || g[c.flag])).map((c) => {
     let w = c.weight;

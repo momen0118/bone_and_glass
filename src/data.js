@@ -140,9 +140,9 @@ export const SUPPLY_SHOP = [
 // ---------- 店の設え ----------
 export const SHELF_EXPAND = { 7: 800, 8: 1200, 9: 1800 };
 export const DECOR = [
-  { id: "lamp",   name: "真鍮の吊りランプ", icon: "🕯️", cost: 600,  desc: "店先が明るくなり、客足が増す(来客+1)" },
-  { id: "velvet", name: "天鵞絨の敷布",     icon: "🟥", cost: 900,  desc: "華やかな品が映える(華タグの売価+10%)" },
-  { id: "window", name: "大硝子窓",         icon: "🪟", cost: 1500, desc: "往来から棚が見える(購入率+5%)" },
+  { id: "lamp",   name: "真鍮の吊りランプ", icon: "🕯️", cost: 1200, desc: "店先が明るくなり、客足が増す(来客+1)" },
+  { id: "velvet", name: "天鵞絨の敷布",     icon: "🟥", cost: 1800, desc: "華やかな品が映える(華タグの売価+10%)" },
+  { id: "window", name: "大硝子窓",         icon: "🪟", cost: 2800, desc: "往来から棚が見える(購入率+5%)" },
 ];
 
 // ---------- 客 ----------

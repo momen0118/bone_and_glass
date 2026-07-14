@@ -7,7 +7,11 @@
 
 import { SPECIMENS } from "./data.js";
 
-export const PORTRAIT_IDS = ["gakusei", "gakusha", "koujika", "kifujin", "collector"];
+export const PORTRAIT_IDS = ["gakusei", "gakusha", "koujika", "kifujin", "collector", "ooya", "wakate"];
+
+// リポジトリ読み込み画像のスロット種別ごとの初期zoom(ここ一箇所で調整する)
+// 肖像は横長(左右に壁紙、中央に楕円の額)なので、円形切り抜きに楕円の内側が収まるよう拡大する
+export const FILE_ZOOM = { portrait: 1.7, shop: 1.0 };
 
 const FILES = import.meta.glob("/img/**/*.{png,jpg}", { eager: true, query: "?url", import: "default" });
 const urlFor = (base) => FILES[`${base}.png`] || FILES[`${base}.jpg`] || null;

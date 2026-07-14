@@ -12,6 +12,7 @@ import {
   PROCESSES, procLevel, RECIPES, SPEC_PROC, SECONDARY,
   SITES, SUPPLY_SHOP, SHELF_EXPAND, DECOR,
   CUSTOMERS, COLLECTOR, OOYA, SHOP_BUYOUT, SETS, ALIASES, PRICE_MODES,
+  GAKUSEI_KOUHAI_LINE, GAKUSEI_GRAD, SWAMP_UNLOCK, CAVE_UNLOCK,
   RENT, RENT_INTERVAL, MAX_AP,
 } from "./data.js";
 import { storage } from "./storage.js";
@@ -51,6 +52,9 @@ function newGame() {
     trust: 0, // 蒐集家の信頼(内部値、-6〜+6。画面には出さない)
     lastRent: RENT, // 前回支払った家賃額
     ownShop: false, buyoutPending: false, // 店の買い取り(pendingは買った日の夜の演出用)
+    gakuseiGraduated: false, // 学生の就職イベント(一度きり)
+    swampUnlocked: false,    // 霧の湿原(老学者への累計販売で解禁)
+    caveUnlocked: false, gatherCount: 0, // 石灰洞窟(森・入り江への依頼の累計で解禁)
   };
 }
 const clampTrust = (t) => Math.max(-6, Math.min(6, t));
@@ -78,6 +82,11 @@ function migrate(loaded) {
   g.lastRent = typeof loaded.lastRent === "number" ? loaded.lastRent : RENT;
   g.ownShop = !!loaded.ownShop;
   g.buyoutPending = false;
+  g.gakuseiGraduated = !!loaded.gakuseiGraduated;
+  // 旧セーブ: 湿原は評判10以上なら解禁済み扱い、洞窟は解禁済み扱い
+  g.swampUnlocked = loaded.swampUnlocked !== undefined ? !!loaded.swampUnlocked : (loaded.rep || 0) >= 10;
+  g.caveUnlocked = loaded.caveUnlocked !== undefined ? !!loaded.caveUnlocked : true;
+  g.gatherCount = loaded.gatherCount || 0;
   return g;
 }
 
@@ -150,8 +159,8 @@ function custLine(c, bought, kind) {
   const L = c.lines;
   if (kind === "buy") {
     let pool = [...L.buy];
-    if (bought >= 8 && L.friend) pool = [...pool, ...L.friend, ...L.friend];
-    else if (bought >= 3 && L.regular) pool = [...pool, ...L.regular, ...L.regular];
+    if (bought >= 18 && L.friend) pool = [...pool, ...L.friend, ...L.friend];
+    else if (bought >= 8 && L.regular) pool = [...pool, ...L.regular, ...L.regular];
     return pick(pool);
   }
   return pick(L[kind] || L.buy);
@@ -169,12 +178,16 @@ function simulateNight(g) {
 
   let visitors = Math.min(10, 2 + Math.floor(g.rep / 8) + (g.decor.lamp ? 1 : 0) + (Math.random() < 0.5 ? 1 : 0));
   const aliasCat = g.alias;
-  const pool = CUSTOMERS.filter((c) => g.rep >= c.minRep).map((c) => {
+  const pool = CUSTOMERS.filter((c) => g.rep >= c.minRep && (!c.flag || g[c.flag])).map((c) => {
     let w = c.weight;
     if (aliasCat && ALIASES[aliasCat].invite.includes(c.id)) w += 2;
     if (sets.some((s) => s.invite === c.id)) w += 2;
+    // 就職イベント後、学生は後輩に代替わり(buyに一言加わる)
+    if (c.id === "gakusei" && g.gakuseiGraduated)
+      c = { ...c, lines: { ...c.lines, buy: [...c.lines.buy, GAKUSEI_KOUHAI_LINE] } };
     return [c, w];
   });
+  let graduated = g.gakuseiGraduated;
 
   const priceAt = (i) => {
     let p = basePrice(g, shelf[i]) * mode.mult;
@@ -185,6 +198,17 @@ function simulateNight(g) {
 
   for (let v = 0; v < visitors; v++) {
     const c = weightedPick(pool);
+    // 学生の就職イベント: 累計販売が閾値に達した後の来店を置き換える(購入なし・一度きり)
+    if (c.id === "gakusei" && !graduated && (custBought.gakusei || 0) >= GAKUSEI_GRAD.threshold) {
+      graduated = true;
+      custBought.gakusei = 0; // 後輩に代替わり
+      log.push({
+        t: "misc", cid: "gakusei",
+        line: GAKUSEI_GRAD.line, sub: GAKUSEI_GRAD.sub,
+        text: `学生「${GAKUSEI_GRAD.line}」— ${GAKUSEI_GRAD.sub}`,
+      });
+      continue;
+    }
     const bought = custBought[c.id] || 0;
     const slots = shelf.map((id, i) => ({ id, i })).filter((s) => s.id && s.i < g.shelfSize);
     if (!slots.length) { log.push({ t: "misc", cid: c.id, text: `${c.name}が覗いたが、棚は空だった。`, line: null }); continue; }
@@ -221,6 +245,13 @@ function simulateNight(g) {
     }
   }
   if (!visitors) log.push({ t: "misc", text: "今夜は誰も来なかった。硝子が静かに光っている。" });
+
+  // 湿原の解禁(老学者への累計販売が閾値に達した夜、営業ログ末尾にイベント行)
+  let swampUnlocked = g.swampUnlocked;
+  if (!swampUnlocked && (custBought.gakusha || 0) >= SWAMP_UNLOCK.threshold) {
+    swampUnlocked = true;
+    log.push({ t: "event", cid: "gakusha", text: SWAMP_UNLOCK.text });
+  }
 
   // 家賃(店を買い取った夜は、大家の去り際のイベント行に差し替わる)
   let rentLog = null, rentPaid = null;
@@ -263,7 +294,8 @@ function simulateNight(g) {
       else if (stockRares.length) { offer = { specId: pick(stockRares), source: "stock" }; }
     }
   }
-  return { log, gold, rep, sold, rentLog, rentPaid, wageText, shelf, soldByCat, custBought, offer };
+  return { log, gold, rep, sold, rentLog, rentPaid, wageText, shelf, soldByCat, custBought, offer,
+    gakuseiGraduated: graduated, swampUnlocked };
 }
 
 // ---------- 画像 ----------
@@ -386,6 +418,8 @@ export default function BoneAndGlass() {
   const [toast, setToast] = useState(null);
   // 夜のカード送り: idx=表示中の客, collapsed=「残りをまとめる」押下済み
   const [nightView, setNightView] = useState({ idx: 0, collapsed: false });
+  // 洞窟解禁の朝のイベント行(その朝のあいだだけ表示)
+  const [caveEvent, setCaveEvent] = useState(null);
 
   useEffect(() => {
     (async () => {
@@ -423,8 +457,13 @@ export default function BoneAndGlass() {
     for (let i = 0; i < 3; i++) { const m = weightedPick(site.table); got[m] = (got[m] || 0) + 1; }
     const inv = { ...g.inv };
     Object.entries(got).forEach(([k, v]) => (inv[k] = (inv[k] || 0) + v));
-    setG({ ...g, gold: g.gold - site.cost, inv });
-    flash("入手: " + Object.entries(got).map(([k, v]) => `${itemIcon(k)}${itemName(k)}×${v}`).join("、"));
+    // 洞窟の解禁: 森・入り江への依頼の累計が閾値に達したら
+    let gatherCount = g.gatherCount || 0, caveUnlocked = g.caveUnlocked;
+    if (site.id === "mori" || site.id === "umibe") gatherCount += 1;
+    const justUnlocked = !caveUnlocked && gatherCount >= CAVE_UNLOCK.threshold;
+    if (justUnlocked) { caveUnlocked = true; setCaveEvent(CAVE_UNLOCK.text); }
+    setG({ ...g, gold: g.gold - site.cost, inv, gatherCount, caveUnlocked });
+    flash(justUnlocked ? CAVE_UNLOCK.text : "入手: " + Object.entries(got).map(([k, v]) => `${itemIcon(k)}${itemName(k)}×${v}`).join("、"));
   };
   const buySupply = (s) => {
     if (g.gold < s.cost) return flash("お金が足りない");
@@ -514,6 +553,7 @@ export default function BoneAndGlass() {
       alias: newAlias, aliasHistory,
       offer: res.offer, offerResult: null,
       lastRent: res.rentPaid != null ? res.rentPaid : g.lastRent,
+      gakuseiGraduated: res.gakuseiGraduated, swampUnlocked: res.swampUnlocked,
     });
     setNightView({ idx: 0, collapsed: false });
   };
@@ -681,21 +721,23 @@ export default function BoneAndGlass() {
               </div>
             </Panel>
             <div style={{ fontSize: 12, color: C.dim, lineHeight: 1.8 }}>夜のうちに届いた依頼票に目を通す。今日はどこへ人をやろうか。</div>
-            {SITES.map((s) => {
-              const locked = s.minRep && g.rep < s.minRep;
-              return (
-                <Panel key={s.id} style={locked ? { opacity: 0.55 } : null}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div>
-                      <div style={{ fontSize: 15 }}>{s.name} <span style={{ color: C.brass, fontSize: 13 }}>{s.cost}G</span></div>
-                      <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>{locked ? `評判${s.minRep}になると採集人が請けてくれる` : s.desc}</div>
-                      {!locked && <div style={{ fontSize: 12, marginTop: 4 }}>{s.table.map(([m]) => itemIcon(m)).join(" ")}</div>}
-                    </div>
-                    <Btn onClick={() => gather(s)} disabled={locked || g.gold < s.cost}>採集依頼</Btn>
+            {caveEvent && (
+              <div style={{ fontSize: 12, color: C.brass, lineHeight: 1.8, borderLeft: `2px solid ${C.brass}`, paddingLeft: 8 }}>{caveEvent}</div>
+            )}
+            {SITES.filter((s) =>
+              s.id === "shitsugen" ? g.swampUnlocked : s.id === "doukutsu" ? g.caveUnlocked : true
+            ).map((s) => (
+              <Panel key={s.id}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div>
+                    <div style={{ fontSize: 15 }}>{s.name} <span style={{ color: C.brass, fontSize: 13 }}>{s.cost}G</span></div>
+                    <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>{s.desc}</div>
+                    <div style={{ fontSize: 12, marginTop: 4 }}>{s.table.map(([m]) => itemIcon(m)).join(" ")}</div>
                   </div>
-                </Panel>
-              );
-            })}
+                  <Btn onClick={() => gather(s)} disabled={g.gold < s.cost}>採集依頼</Btn>
+                </div>
+              </Panel>
+            ))}
             <Panel>
               <div style={{ fontSize: 15, marginBottom: 6 }}>古物市 <span style={{ fontSize: 11, color: C.dim }}>資材の買い付け</span></div>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -924,6 +966,7 @@ export default function BoneAndGlass() {
                       <div style={{ fontSize: 13, lineHeight: 1.9, color: l.line ? C.ivory : C.dim }}>
                         {l.line ? `「${l.line}」` : l.text}
                       </div>
+                      {l.sub && <div style={{ fontSize: 12, lineHeight: 1.8, color: C.dim, marginTop: 6 }}>{l.sub}</div>}
                     </div>
                   </div>
                   {l.t === "sale" && (
@@ -1024,7 +1067,7 @@ export default function BoneAndGlass() {
             <Btn onClick={() => setShowGallery(true)} style={FOOT_BTN}>画廊</Btn>
             <Btn onClick={() => setShowDecor(true)} style={FOOT_BTN}>調度屋</Btn>
             <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
-              {g.phase === "morning" && <Btn primary onClick={() => setG({ ...g, phase: "workshop" })} style={FOOT_BTN}>工房へ →</Btn>}
+              {g.phase === "morning" && <Btn primary onClick={() => { setCaveEvent(null); setG({ ...g, phase: "workshop" }); }} style={FOOT_BTN}>工房へ →</Btn>}
               {g.phase === "workshop" && <Btn primary onClick={() => { setSel(null); setG({ ...g, phase: "shelf" }); }} style={FOOT_BTN}>陳列へ →</Btn>}
               {g.phase === "shelf" && (
                 <>

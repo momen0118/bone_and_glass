@@ -129,7 +129,7 @@ export const SITES = [
     table: [ ["sakana", 4], ["kai", 4], ["kani", 3], ["kurage", 1] ] },
   { id: "doukutsu", name: "石灰洞窟", cost: 85, desc: "蝙蝠・蛇・鉱石。費用は嵩む",
     table: [ ["koumori", 2], ["hebi", 3], ["suisho", 3], ["ammo", 2] ] },
-  { id: "shitsugen", name: "霧の湿原", cost: 150, minRep: 10, desc: "蛙・蜥蜴・蛾、稀に梟。遠出になる",
+  { id: "shitsugen", name: "霧の湿原", cost: 150, desc: "蛙・蜥蜴・蛾、稀に梟。遠出になる",
     table: [ ["kaeru", 3], ["tokage", 3], ["ga", 3], ["hikarigoke", 2], ["fukurou", 1] ] },
 ];
 
@@ -187,7 +187,37 @@ export const CUSTOMERS = [
       poor: ["あら……お財布を忘れてきたみたい"],
       big: ["今夜の夜会で自慢しますわ"],
     } },
+  // 学生の就職イベント(gakuseiGraduated)以降に客プールへ加わる
+  { id: "wakate", name: "若い研究者", icon: "🎓", minRep: 0, budget: 420, weight: 2, flag: "gakuseiGraduated",
+    likesTags: ["scholar"], likesCats: ["bone"],
+    lines: {
+      buy: ["約束、果たしに来ました", "研究室の棚に、この店の品を", "給料日なので"],
+      regular: ["後輩たちにも教えてます、この店"],
+      friend: ["僕の研究の原点は、この店の頭骨なんです"],
+      pass: ["論文の締切が……また来ます"],
+      poor: ["学生時代の癖で、つい値札から見ちゃうな"],
+      big: ["初任給、こういうことに使いたかったんです"],
+    } },
 ];
+
+// 就職イベント後、学生(後輩)の buy に加わる一言
+export const GAKUSEI_KOUHAI_LINE = "先輩に教わったんです、この店";
+// 学生の就職イベント
+export const GAKUSEI_GRAD = {
+  threshold: 30, // 学生への累計販売がこの回数に達した後、次の来店で発生
+  line: "就職しました。……約束、覚えてますか",
+  sub: "春から研究室に入るらしい。少しいい外套を着ていた。",
+};
+// 湿原の解禁(老学者への累計販売)
+export const SWAMP_UNLOCK = {
+  threshold: 5,
+  text: "老学者「君の腕なら、霧の湿原の品も扱えるだろう。採集人に紹介状を書いておいた。」",
+};
+// 洞窟の解禁(森・入り江への採集依頼の累計)
+export const CAVE_UNLOCK = {
+  threshold: 5,
+  text: "採集人「洞窟の下見をしてきた。次からは請けられる。」",
+};
 
 // ---------- 大家 ----------
 export const OOYA = {

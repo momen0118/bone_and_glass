@@ -69,6 +69,8 @@ function migrate(loaded) {
   g.collectorCd = loaded.collectorCd || 0;
   g.apprentice = !!loaded.apprentice;
   g.trust = typeof loaded.trust === "number" ? clampTrust(loaded.trust) : 0;
+  // 通り名を持たない旧セーブは、従来の判定(最多カテゴリ5個以上)で引き継ぐ
+  if (!("alias" in loaded)) g.alias = aliasOf(g.soldByCat);
   return g;
 }
 
@@ -125,6 +127,18 @@ function aliasOf(soldByCat) {
   }
   return bestN >= 5 ? best : null;
 }
+// 通り名の粘り: 未獲得なら最多カテゴリ(5個以上)で獲得。
+// 獲得済みなら、他カテゴリが現通り名カテゴリを3個以上上回った場合のみ交代
+function nextAlias(cur, soldByCat) {
+  if (!cur) return aliasOf(soldByCat);
+  const curN = soldByCat[cur] || 0;
+  let best = null, bestN = 0;
+  for (const [cat, n] of Object.entries(soldByCat)) {
+    if (cat === cur) continue;
+    if (n > bestN) { best = cat; bestN = n; }
+  }
+  return best && bestN >= curN + 3 ? best : cur;
+}
 function custLine(c, bought, kind) {
   const L = c.lines;
   if (kind === "buy") {
@@ -147,7 +161,7 @@ function simulateNight(g) {
   const sets = activeSets(shelf, g.shelfSize);
 
   let visitors = Math.min(10, 2 + Math.floor(g.rep / 8) + (g.decor.lamp ? 1 : 0) + (Math.random() < 0.5 ? 1 : 0));
-  const aliasCat = aliasOf(g.soldByCat);
+  const aliasCat = g.alias;
   const pool = CUSTOMERS.filter((c) => g.rep >= c.minRep).map((c) => {
     let w = c.weight;
     if (aliasCat && ALIASES[aliasCat].invite.includes(c.id)) w += 2;
@@ -441,8 +455,8 @@ export default function BoneAndGlass() {
     const log = [...res.log];
     if (res.wageText) log.push({ t: "rent", text: res.wageText });
     if (res.rentText) log.push({ t: "rent", text: res.rentText });
-    // 通り名の変化
-    const oldAlias = aliasOf(g.soldByCat), newAlias = aliasOf(res.soldByCat);
+    // 通り名の変化(獲得済みの通り名には粘りがある)
+    const oldAlias = g.alias, newAlias = nextAlias(g.alias, res.soldByCat);
     let aliasHistory = g.aliasHistory;
     if (newAlias && newAlias !== oldAlias) {
       const nm = ALIASES[newAlias].name;
@@ -559,7 +573,7 @@ export default function BoneAndGlass() {
   const knownSpecs = new Set(RECIPES.filter((r) => g.known.includes(r.id)).map((r) => r.to));
   const curSets = activeSets(g.shelf, g.shelfSize);
   const daysToRent = (RENT_INTERVAL - (g.day % RENT_INTERVAL)) % RENT_INTERVAL;
-  const aliasCat = aliasOf(g.soldByCat);
+  const aliasCat = g.alias;
 
   // 夜のカード送り用: 客のいるログ(カード対象)とそれ以外(家賃・通り名など、サマリ行き)
   const nightCust = g.nightLog.filter((l) => l.cid);

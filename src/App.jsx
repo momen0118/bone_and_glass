@@ -161,11 +161,12 @@ function simulateNight(g) {
     const c = weightedPick(pool);
     const bought = custBought[c.id] || 0;
     const slots = shelf.map((id, i) => ({ id, i })).filter((s) => s.id && s.i < g.shelfSize);
-    if (!slots.length) { log.push({ t: "misc", cid: c.id, text: `${c.name}が覗いたが、棚は空だった。` }); continue; }
+    if (!slots.length) { log.push({ t: "misc", cid: c.id, text: `${c.name}が覗いたが、棚は空だった。`, line: null }); continue; }
 
     const afford = slots.filter((s) => priceAt(s.i) <= c.budget);
     if (!afford.length) {
-      log.push({ t: "misc", cid: c.id, text: `${c.name}「${custLine(c, bought, "poor")}」` });
+      const line = custLine(c, bought, "poor");
+      log.push({ t: "misc", cid: c.id, text: `${c.name}「${line}」`, line });
       continue;
     }
     const favs = afford.filter((s) => {
@@ -187,9 +188,10 @@ function simulateNight(g) {
       rep += 1 + (sp.tags.includes("rare") ? 1 : 0) + mode.repBonus;
       const big = price >= 300;
       const line = big ? custLine(c, bought, "big") : custLine(c, bought, "buy");
-      log.push({ t: "sale", cid: c.id, big, text: `${c.name}「${line}」— ${sp.icon} ${sp.name}を ${price}G で購入。` });
+      log.push({ t: "sale", cid: c.id, big, text: `${c.name}「${line}」— ${sp.icon} ${sp.name}を ${price}G で購入。`, line, itemId: target.id, price });
     } else {
-      log.push({ t: "misc", cid: c.id, text: `${c.name}「${custLine(c, bought, "pass")}」` });
+      const line = custLine(c, bought, "pass");
+      log.push({ t: "misc", cid: c.id, text: `${c.name}「${line}」`, line });
     }
   }
   if (!visitors) log.push({ t: "misc", text: "今夜は誰も来なかった。硝子が静かに光っている。" });
@@ -271,6 +273,25 @@ const Portrait = ({ cid, imgs, fileImgs, size = 34 }) => {
     </span>
   );
 };
+// 夜のカード用の大きな肖像(額縁風)。画像が無ければ絵文字を大きく
+const FramedPortrait = ({ cid, imgs, fileImgs }) => {
+  const fileUrl = fileImgs && fileImgs.portraits && fileImgs.portraits[cid];
+  const meta = imgs && imgs[cid];
+  const src = fileUrl || (meta && meta.data);
+  const fb = cid === "collector" ? COLLECTOR.icon : (CUSTOMERS.find((c) => c.id === cid) || {}).icon || "·";
+  const zoom = fileUrl ? 1 : (meta && meta.zoom) || 1.15;
+  return (
+    <div style={{ width: "40%", flexShrink: 0 }}>
+      <div style={{ border: `3px double ${C.brass}`, borderRadius: 4, padding: 3, background: "#0e0b08", boxShadow: "0 2px 10px rgba(0,0,0,0.45)" }}>
+        <div style={{ aspectRatio: "1 / 1", overflow: "hidden", borderRadius: 2, background: "#171310", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          {src
+            ? <img src={src} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", transform: `scale(${zoom})`, filter: "sepia(0.3) contrast(1.05) brightness(0.98)" }} />
+            : <span style={{ fontSize: 52 }}>{fb}</span>}
+        </div>
+      </div>
+    </div>
+  );
+};
 // 標本の絵柄: リポジトリ画像があれば正方形・角丸で、なければ絵文字
 const SpecIcon = ({ id, fileImgs, size = 20, emojiSize, style }) => {
   const url = fileImgs && fileImgs.specimens && fileImgs.specimens[id];
@@ -299,6 +320,8 @@ export default function BoneAndGlass() {
   const [bookTab, setBookTab] = useState("spec");
   const [showGallery, setShowGallery] = useState(false);
   const [toast, setToast] = useState(null);
+  // 夜のカード送り: idx=表示中の客, collapsed=「残りをまとめる」押下済み
+  const [nightView, setNightView] = useState({ idx: 0, collapsed: false });
 
   useEffect(() => {
     (async () => {
@@ -420,6 +443,7 @@ export default function BoneAndGlass() {
       alias: newAlias, aliasHistory,
       offer: res.offer, offerResult: null,
     });
+    setNightView({ idx: 0, collapsed: false });
   };
 
   // ---- 蒐集家との交渉 ----
@@ -505,6 +529,31 @@ export default function BoneAndGlass() {
   const curSets = activeSets(g.shelf, g.shelfSize);
   const daysToRent = (RENT_INTERVAL - (g.day % RENT_INTERVAL)) % RENT_INTERVAL;
   const aliasCat = aliasOf(g.soldByCat);
+
+  // 夜のカード送り用: 客のいるログ(カード対象)とそれ以外(家賃・通り名など、サマリ行き)
+  const nightCust = g.nightLog.filter((l) => l.cid);
+  const nightSys = g.nightLog.filter((l) => !l.cid);
+  const nightInCards = g.phase === "night" && !nightView.collapsed && nightView.idx < nightCust.length;
+  // カード送り中の売上累計(表示済みカードまで)
+  const nightEarnSoFar = nightCust.slice(0, nightView.idx + 1)
+    .filter((l) => l.t === "sale").reduce((s, l) => s + (l.price || 0), 0);
+  const nightAdvance = () => setNightView((v) => ({ ...v, idx: v.idx + 1 }));
+  const nightCollapse = () => setNightView((v) => ({ ...v, collapsed: true }));
+  // 現行の一覧ログ形式(まとめ表示・サマリで使う)
+  const nightLogLine = (l, i) => (
+    <div key={i} style={{
+      display: "flex", alignItems: "flex-start", gap: 8,
+      fontSize: 13, lineHeight: 1.7,
+      color: l.t === "sale" ? C.ivory : l.t === "rent" ? C.red : l.t === "alias" ? C.brass : C.dim,
+      borderLeft: `2px solid ${l.big ? "#e0b96a" : l.t === "sale" ? C.brass : l.t === "rent" ? C.red : l.t === "alias" ? C.brass : C.line}`,
+      paddingLeft: 8,
+      background: l.big ? "rgba(201,161,94,0.08)" : "transparent",
+      borderRadius: l.big ? 4 : 0, paddingTop: l.big ? 4 : 0, paddingBottom: l.big ? 4 : 0,
+    }}>
+      {l.cid && <Portrait cid={l.cid} imgs={imgs} fileImgs={fileImgs} size={30} />}
+      <span>{l.text}</span>
+    </div>
+  );
 
   // 二次加工マーク: '⚒'=発見済みの次加工あり '?'=未知の次加工あり
   const nextMark = (specId) => {
@@ -749,27 +798,63 @@ export default function BoneAndGlass() {
         )}
 
         {/* ===== 夜 ===== */}
-        {g.phase === "night" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <Panel>
-              <div style={{ fontSize: 11, color: C.dim, marginBottom: 8, letterSpacing: "0.2em" }}>本日の営業</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                {g.nightLog.map((l, i) => (
-                  <div key={i} style={{
-                    display: "flex", alignItems: "flex-start", gap: 8,
-                    fontSize: 13, lineHeight: 1.7,
-                    color: l.t === "sale" ? C.ivory : l.t === "rent" ? C.red : l.t === "alias" ? C.brass : C.dim,
-                    borderLeft: `2px solid ${l.big ? "#e0b96a" : l.t === "sale" ? C.brass : l.t === "rent" ? C.red : l.t === "alias" ? C.brass : C.line}`,
-                    paddingLeft: 8,
-                    background: l.big ? "rgba(201,161,94,0.08)" : "transparent",
-                    borderRadius: l.big ? 4 : 0, paddingTop: l.big ? 4 : 0, paddingBottom: l.big ? 4 : 0,
-                  }}>
-                    {l.cid && <Portrait cid={l.cid} imgs={imgs} fileImgs={fileImgs} size={30} />}
-                    <span>{l.text}</span>
-                  </div>
-                ))}
+        {g.phase === "night" && nightInCards && (() => {
+          const l = nightCust[nightView.idx];
+          const cust = CUSTOMERS.find((c) => c.id === l.cid);
+          return (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                <div style={{ fontSize: 11, color: C.dim, letterSpacing: "0.2em" }}>本日の営業</div>
+                <div style={{ fontSize: 11, color: C.dim, fontVariantNumeric: "tabular-nums" }}>{nightView.idx + 1} / {nightCust.length} 組</div>
               </div>
-              <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 10, paddingTop: 8, fontSize: 14, display: "flex", justifyContent: "space-between" }}>
+              <div onClick={nightAdvance} style={{ cursor: "pointer" }}>
+                <Panel style={l.big ? { borderColor: "#e0b96a", boxShadow: "0 0 14px rgba(201,161,94,0.15)" } : null}>
+                  <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                    <FramedPortrait cid={l.cid} imgs={imgs} fileImgs={fileImgs} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 15, letterSpacing: "0.1em", marginBottom: 6 }}>{cust ? cust.name : ""}</div>
+                      <div style={{ fontSize: 13, lineHeight: 1.9, color: l.line ? C.ivory : C.dim }}>
+                        {l.line ? `「${l.line}」` : l.text}
+                      </div>
+                    </div>
+                  </div>
+                  {l.t === "sale" && (
+                    <div style={{ marginTop: 10, borderTop: `1px solid ${C.line}`, paddingTop: 8, display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+                      <SpecIcon id={l.itemId} fileImgs={fileImgs} size={26} emojiSize={16} />
+                      <span>{SPECIMENS[l.itemId].name}</span>
+                      <span style={{ marginLeft: "auto", color: C.brass, fontVariantNumeric: "tabular-nums" }}>{l.price} G</span>
+                    </div>
+                  )}
+                </Panel>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <Btn onClick={nightCollapse} style={{ fontSize: 12 }}>残りをまとめる</Btn>
+                <Btn primary onClick={nightAdvance} style={{ marginLeft: "auto" }}>次へ →</Btn>
+              </div>
+              <div style={{ position: "fixed", right: 12, bottom: 70, background: "rgba(31,26,19,0.95)", border: `1px solid ${C.brass}`, borderRadius: 4, padding: "5px 10px", fontSize: 12, color: C.brass, fontVariantNumeric: "tabular-nums", zIndex: 40 }}>
+                売上 {nightEarnSoFar} G
+              </div>
+            </div>
+          );
+        })()}
+        {g.phase === "night" && !nightInCards && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {nightView.collapsed && nightCust.slice(nightView.idx).length > 0 && (
+              <Panel>
+                <div style={{ fontSize: 11, color: C.dim, marginBottom: 8, letterSpacing: "0.2em" }}>そのあとの客</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                  {nightCust.slice(nightView.idx).map(nightLogLine)}
+                </div>
+              </Panel>
+            )}
+            <Panel>
+              <div style={{ fontSize: 11, color: C.dim, marginBottom: 8, letterSpacing: "0.2em" }}>本日の勘定</div>
+              {nightSys.length > 0 && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 7, marginBottom: 8 }}>
+                  {nightSys.map(nightLogLine)}
+                </div>
+              )}
+              <div style={{ borderTop: `1px solid ${C.line}`, paddingTop: 8, fontSize: 14, display: "flex", justifyContent: "space-between" }}>
                 <span style={{ color: C.dim }}>本日の売上</span>
                 <span style={{ color: C.brass, fontVariantNumeric: "tabular-nums" }}>{g.nightEarn} G</span>
               </div>
@@ -836,7 +921,7 @@ export default function BoneAndGlass() {
                   <Btn primary onClick={openStore}>開店する</Btn>
                 </>
               )}
-              {g.phase === "night" && <Btn primary onClick={nextDay} disabled={!!g.offer}>翌朝へ →</Btn>}
+              {g.phase === "night" && <Btn primary onClick={nextDay} disabled={!!g.offer || nightInCards}>翌朝へ →</Btn>}
             </div>
           </div>
         </div>

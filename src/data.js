@@ -190,7 +190,15 @@ export const CUSTOMERS = [
 ];
 
 // ---------- 大家 ----------
-export const OOYA = { id: "ooya", name: "大家", icon: "🗝️" };
+export const OOYA = {
+  id: "ooya", name: "大家", icon: "🗝️",
+  normal: ["今週の分だ。耳を揃えてもらおうか。", "あいよ、家賃日だ。"], // 平常の家賃日(表示率50%)
+  raise150: "景気が良さそうじゃないか、ええ?",
+  raise200: "立派な店になったもんだ。なら家賃も立派にしないとなあ?",
+  broke: "おいおい、硝子より先に財布が空か? ツケといてやるが、覚えとけよ。",
+  farewell: "……ふん。これでもう、ここに来る理由がなくなっちまったな", // 店の買い取りの夜
+};
+export const SHOP_BUYOUT = 15000;
 
 export const COLLECTOR = {
   id: "collector", name: "外套の蒐集家", icon: "🕯️",

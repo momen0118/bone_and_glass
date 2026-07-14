@@ -11,7 +11,7 @@ import {
   MATERIALS, MAT_ORDER, CAT_NAME, TAG_NAME, SPECIMENS,
   PROCESSES, procLevel, RECIPES, SPEC_PROC, SECONDARY,
   SITES, SUPPLY_SHOP, SHELF_EXPAND, DECOR,
-  CUSTOMERS, COLLECTOR, OOYA, SETS, ALIASES, PRICE_MODES,
+  CUSTOMERS, COLLECTOR, OOYA, SHOP_BUYOUT, SETS, ALIASES, PRICE_MODES,
   RENT, RENT_INTERVAL, MAX_AP,
 } from "./data.js";
 import { storage } from "./storage.js";
@@ -50,6 +50,7 @@ function newGame() {
     apprentice: false,
     trust: 0, // 蒐集家の信頼(内部値、-6〜+6。画面には出さない)
     lastRent: RENT, // 前回支払った家賃額
+    ownShop: false, buyoutPending: false, // 店の買い取り(pendingは買った日の夜の演出用)
   };
 }
 const clampTrust = (t) => Math.max(-6, Math.min(6, t));
@@ -75,6 +76,8 @@ function migrate(loaded) {
   // 通り名を持たない旧セーブは、従来の判定(最多カテゴリ5個以上)で引き継ぐ
   if (!("alias" in loaded)) g.alias = aliasOf(g.soldByCat);
   g.lastRent = typeof loaded.lastRent === "number" ? loaded.lastRent : RENT;
+  g.ownShop = !!loaded.ownShop;
+  g.buyoutPending = false;
   return g;
 }
 
@@ -219,13 +222,27 @@ function simulateNight(g) {
   }
   if (!visitors) log.push({ t: "misc", text: "今夜は誰も来なかった。硝子が静かに光っている。" });
 
-  let rentText = null, rentPaid = null;
-  if (g.day % RENT_INTERVAL === 0) {
+  // 家賃(店を買い取った夜は、大家の去り際のイベント行に差し替わる)
+  let rentLog = null, rentPaid = null;
+  if (g.buyoutPending) {
+    rentLog = { t: "event", cid: "ooya", text: `大家は金を数え終え、しばらく黙っていた。「${OOYA.farewell}」` };
+  } else if (!g.ownShop && g.day % RENT_INTERVAL === 0) {
     const rent = rentFor(g.rep); // 開店前(朝時点)の評判で判定
+    const cash = g.gold + gold;  // 支払い直前の所持金
     gold -= rent; rentPaid = rent;
-    rentText = rent > (g.lastRent != null ? g.lastRent : RENT)
-      ? `大家「景気が良さそうじゃないか、ええ?」— 家賃は ${rent}G になった。`
-      : `大家が来た。家賃 ${rent}G を支払った。`;
+    let text;
+    if (rent > (g.lastRent != null ? g.lastRent : RENT)) {
+      text = rent >= 200
+        ? `大家「${OOYA.raise200}」— 家賃は ${rent}G になった。`
+        : `大家「${OOYA.raise150}」— 家賃は ${rent}G になった。`;
+    } else if (cash < rent) {
+      text = `大家「${OOYA.broke}」`;
+    } else if (Math.random() < 0.5) {
+      text = `大家「${pick(OOYA.normal)}」— 家賃 ${rent}G を支払った。`;
+    } else {
+      text = `大家が来た。家賃 ${rent}G を支払った。`;
+    }
+    rentLog = { t: "rent", cid: "ooya", text };
   }
 
   // 見習いの日当
@@ -246,7 +263,7 @@ function simulateNight(g) {
       else if (stockRares.length) { offer = { specId: pick(stockRares), source: "stock" }; }
     }
   }
-  return { log, gold, rep, sold, rentText, rentPaid, wageText, shelf, soldByCat, custBought, offer };
+  return { log, gold, rep, sold, rentLog, rentPaid, wageText, shelf, soldByCat, custBought, offer };
 }
 
 // ---------- 画像 ----------
@@ -426,6 +443,11 @@ export default function BoneAndGlass() {
     setG({ ...g, gold: g.gold - d.cost, decor: { ...g.decor, [d.id]: true } });
     flash(`${d.name}を設えた`);
   };
+  // 店の買い取り(大家の別れの言葉はその夜の営業ログで)
+  const buyShop = () => {
+    if (g.ownShop || g.gold < SHOP_BUYOUT) return;
+    setG({ ...g, gold: g.gold - SHOP_BUYOUT, ownShop: true, buyoutPending: true });
+  };
 
   // ---- 昼 ----
   const craftables = (id) => RECIPES.filter((r) => r.from === id);
@@ -474,7 +496,7 @@ export default function BoneAndGlass() {
     const res = simulateNight(g);
     const log = [...res.log];
     if (res.wageText) log.push({ t: "rent", text: res.wageText });
-    if (res.rentText) log.push({ t: "rent", text: res.rentText });
+    if (res.rentLog) log.push(res.rentLog);
     // 通り名の変化(獲得済みの通り名には粘りがある)
     const oldAlias = g.alias, newAlias = nextAlias(g.alias, res.soldByCat);
     let aliasHistory = g.aliasHistory;
@@ -486,7 +508,7 @@ export default function BoneAndGlass() {
     setG({
       ...g, phase: "night", shelf: res.shelf,
       gold: g.gold + res.gold, rep: g.rep + res.rep,
-      nightLog: log, nightEarn: res.gold, nightRent: res.rentText,
+      nightLog: log, nightEarn: res.gold, nightRent: res.rentLog ? res.rentLog.text : null,
       totalEarn: g.totalEarn + Math.max(0, res.gold), totalSold: g.totalSold + res.sold,
       soldByCat: res.soldByCat, custBought: res.custBought,
       alias: newAlias, aliasHistory,
@@ -543,6 +565,7 @@ export default function BoneAndGlass() {
     const ng = {
       ...g, day: g.day + 1, phase: "morning", ap: MAX_AP + (g.apprentice ? 1 : 0),
       nightLog: [], nightRent: null, craftLog: [], offer: null, offerResult: null,
+      buyoutPending: false,
       collectorCd: Math.max(0, (g.collectorCd || 0) - 1),
       // 信頼は負のときだけ毎朝+0.5ずつ0へ回復(正の値は減衰しない)
       trust: (g.trust || 0) < 0 ? Math.min(0, (g.trust || 0) + 0.5) : (g.trust || 0),
@@ -596,9 +619,10 @@ export default function BoneAndGlass() {
   const daysToRent = (RENT_INTERVAL - (g.day % RENT_INTERVAL)) % RENT_INTERVAL;
   const aliasCat = g.alias;
 
-  // 夜のカード送り用: 客のいるログ(カード対象)とそれ以外(家賃・通り名など、サマリ行き)
-  const nightCust = g.nightLog.filter((l) => l.cid);
-  const nightSys = g.nightLog.filter((l) => !l.cid);
+  // 夜のカード送り用: 客の来店(カード対象)とそれ以外(家賃・通り名・イベント行など、サマリ行き)
+  const isCardEntry = (l) => l.cid && (l.t === "sale" || l.t === "misc");
+  const nightCust = g.nightLog.filter(isCardEntry);
+  const nightSys = g.nightLog.filter((l) => !isCardEntry(l));
   const nightInCards = g.phase === "night" && !nightView.collapsed && nightView.idx < nightCust.length;
   // カード送り中の売上累計(表示済みカードまで)
   const nightEarnSoFar = nightCust.slice(0, nightView.idx + 1)
@@ -610,8 +634,8 @@ export default function BoneAndGlass() {
     <div key={i} style={{
       display: "flex", alignItems: "flex-start", gap: 8,
       fontSize: 13, lineHeight: 1.7,
-      color: l.t === "sale" ? C.ivory : l.t === "rent" ? C.red : l.t === "alias" ? C.brass : C.dim,
-      borderLeft: `2px solid ${l.big ? "#e0b96a" : l.t === "sale" ? C.brass : l.t === "rent" ? C.red : l.t === "alias" ? C.brass : C.line}`,
+      color: l.t === "sale" ? C.ivory : l.t === "rent" ? C.red : l.t === "alias" || l.t === "event" ? C.brass : C.dim,
+      borderLeft: `2px solid ${l.big ? "#e0b96a" : l.t === "sale" ? C.brass : l.t === "rent" ? C.red : l.t === "alias" || l.t === "event" ? C.brass : C.line}`,
       paddingLeft: 8,
       background: l.big ? "rgba(201,161,94,0.08)" : "transparent",
       borderRadius: l.big ? 4 : 0, paddingTop: l.big ? 4 : 0, paddingBottom: l.big ? 4 : 0,
@@ -641,7 +665,9 @@ export default function BoneAndGlass() {
           </div>
           <div style={{ textAlign: "right", fontSize: 13 }}>
             <div style={{ color: g.gold < 0 ? C.red : C.brass, fontVariantNumeric: "tabular-nums" }}>{g.gold} G{g.gold < 0 ? "(借金)" : ""}</div>
-            <div style={{ color: C.dim }}>評判 {g.rep} · <span style={{ color: daysToRent === 0 ? C.red : C.dim }}>{daysToRent === 0 ? "今夜家賃" : `家賃${rentFor(g.rep)}Gまで${daysToRent}日`}</span></div>
+            <div style={{ color: C.dim }}>評判 {g.rep} · {g.ownShop
+              ? <span style={{ color: C.glass }}>自分の店</span>
+              : <span style={{ color: daysToRent === 0 ? C.red : C.dim }}>{daysToRent === 0 ? "今夜家賃" : `家賃${rentFor(g.rep)}Gまで${daysToRent}日`}</span>}</div>
           </div>
         </div>
 
@@ -974,7 +1000,7 @@ export default function BoneAndGlass() {
               </Panel>
             )}
 
-            {daysToRent === 1 && <div style={{ fontSize: 12, color: C.red, textAlign: "center" }}>明日は家賃の日({rentFor(g.rep)}G)。</div>}
+            {!g.ownShop && daysToRent === 1 && <div style={{ fontSize: 12, color: C.red, textAlign: "center" }}>明日は家賃の日({rentFor(g.rep)}G)。</div>}
 
             {g.day % 30 === 0 && (
               <Panel style={{ borderColor: C.brass }}>
@@ -1109,6 +1135,12 @@ export default function BoneAndGlass() {
                     {g.decor[d.id] ? <span style={{ fontSize: 12, color: C.glass }}>設置済</span> : <Btn onClick={() => buyDecor(d)} disabled={g.gold < d.cost}>{d.cost}G</Btn>}
                   </div>
                 ))}
+                {!g.ownShop && (
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: `1px solid ${C.line}`, paddingTop: 8, marginTop: 2 }}>
+                    <div style={{ fontSize: 13 }}>この店の買い取り<div style={{ fontSize: 11, color: C.dim }}>大家から店ごと買い上げる。家賃とはお別れだ</div></div>
+                    <Btn onClick={buyShop} disabled={g.gold < SHOP_BUYOUT}>{SHOP_BUYOUT}G</Btn>
+                  </div>
+                )}
               </div>
             </div>
           </div>

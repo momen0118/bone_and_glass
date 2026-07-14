@@ -395,6 +395,14 @@ const FramedPortrait = ({ cid, imgs, fileImgs }) => {
     </div>
   );
 };
+// 素材の絵柄: リポジトリ画像(ドット絵想定、32×32)があれば整数倍・pixelatedで表示、なければ絵文字
+const MatIcon = ({ id, fileImgs, size = 32, emojiSize = 13, style }) => {
+  const url = fileImgs && fileImgs.materials && fileImgs.materials[id];
+  if (url) return (
+    <img src={url} alt="" style={{ width: size, height: size, imageRendering: "pixelated", display: "inline-block", verticalAlign: "middle", flexShrink: 0, ...style }} />
+  );
+  return <span style={{ fontSize: emojiSize, ...style }}>{MATERIALS[id].icon}</span>;
+};
 // 標本の絵柄: リポジトリ画像があれば正方形・角丸で、なければ絵文字
 // 画像は角丸コンテナ内で specTrim() 倍に拡大し、外周の白フチ・署名を切り落とす
 const SpecIcon = ({ id, fileImgs, size = 20, emojiSize, style }) => {
@@ -733,7 +741,7 @@ export default function BoneAndGlass() {
             <Panel style={{ background: "transparent" }}>
               <div style={{ fontSize: 11, color: C.dim, marginBottom: 4 }}>倉庫</div>
               <div style={{ fontSize: 13, lineHeight: 1.9 }}>
-                {invEntries.length ? invEntries.map(([k, v]) => <span key={k} style={{ marginRight: 10, whiteSpace: "nowrap" }}>{itemIcon(k)}{itemName(k)}×{v}</span>) : <span style={{ color: C.dim }}>空っぽだ</span>}
+                {invEntries.length ? invEntries.map(([k, v]) => <span key={k} style={{ marginRight: 10, whiteSpace: "nowrap" }}><MatIcon id={k} fileImgs={fileImgs} emojiSize={13} />{itemName(k)}×{v}</span>) : <span style={{ color: C.dim }}>空っぽだ</span>}
               </div>
             </Panel>
             <div style={{ fontSize: 12, color: C.dim, lineHeight: 1.8 }}>夜のうちに届いた依頼票に目を通す。今日はどこへ人をやろうか。</div>
@@ -742,24 +750,33 @@ export default function BoneAndGlass() {
             )}
             {SITES.filter((s) =>
               s.id === "shitsugen" ? g.swampUnlocked : s.id === "doukutsu" ? g.caveUnlocked : true
-            ).map((s) => (
-              <Panel key={s.id}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div>
-                    <div style={{ fontSize: 15 }}>{s.name} <span style={{ color: C.brass, fontSize: 13 }}>{s.cost}G</span></div>
-                    <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>{s.desc}</div>
-                    <div style={{ fontSize: 12, marginTop: 4 }}>{s.table.map(([m]) => itemIcon(m)).join(" ")}</div>
+            ).map((s) => {
+              const siteBg = fileImgs && fileImgs.sites && fileImgs.sites[s.id];
+              return (
+                <Panel key={s.id} style={siteBg ? { position: "relative", overflow: "hidden" } : null}>
+                  {siteBg && (
+                    <>
+                      <div style={{ position: "absolute", inset: 0, backgroundImage: `url(${siteBg})`, backgroundSize: "cover", backgroundPosition: "center" }} />
+                      <div style={{ position: "absolute", inset: 0, background: "rgba(20,17,13,0.7)" }} />
+                    </>
+                  )}
+                  <div style={{ position: "relative", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div>
+                      <div style={{ fontSize: 15 }}>{s.name} <span style={{ color: C.brass, fontSize: 13 }}>{s.cost}G</span></div>
+                      <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>{s.desc}</div>
+                      <div style={{ fontSize: 12, marginTop: 4 }}>{s.table.map(([m]) => <MatIcon key={m} id={m} fileImgs={fileImgs} emojiSize={12} style={{ marginRight: 5 }} />)}</div>
+                    </div>
+                    <Btn onClick={() => gather(s)} disabled={g.gold < s.cost}>採集依頼</Btn>
                   </div>
-                  <Btn onClick={() => gather(s)} disabled={g.gold < s.cost}>採集依頼</Btn>
-                </div>
-              </Panel>
-            ))}
+                </Panel>
+              );
+            })}
             <Panel>
               <div style={{ fontSize: 15, marginBottom: 6 }}>古物市 <span style={{ fontSize: 11, color: C.dim }}>資材の買い付け</span></div>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 {SUPPLY_SHOP.map((s) => (
                   <Btn key={s.id} onClick={() => buySupply(s)} disabled={g.gold < s.cost} style={{ fontSize: 13 }}>
-                    {itemIcon(s.id)} {itemName(s.id)} {s.cost}G <span style={{ color: C.dim }}>(所持{g.inv[s.id] || 0})</span>
+                    <MatIcon id={s.id} fileImgs={fileImgs} emojiSize={13} /> {itemName(s.id)} {s.cost}G <span style={{ color: C.dim }}>(所持{g.inv[s.id] || 0})</span>
                   </Btn>
                 ))}
               </div>
@@ -800,7 +817,7 @@ export default function BoneAndGlass() {
                         background: sel === k ? C.brass : C.panelHi, color: sel === k ? "#1a140c" : C.ivory,
                         border: `1px solid ${sel === k ? C.brass : C.line}`,
                         whiteSpace: "nowrap", flexShrink: 0,
-                      }}>{itemIcon(k)} {itemName(k)} ×{v}{mk && <span style={{ color: sel === k ? "#1a140c" : C.glass, marginLeft: 4 }}>{mk}</span>}</button>
+                      }}>{MATERIALS[k] ? <MatIcon id={k} fileImgs={fileImgs} emojiSize={13} /> : itemIcon(k)} {itemName(k)} ×{v}{mk && <span style={{ color: sel === k ? "#1a140c" : C.glass, marginLeft: 4 }}>{mk}</span>}</button>
                   );
                 })}
                 {!invEntries.filter(([k]) => !MATERIALS[k].supply).length && !specEntries.filter(([k]) => craftables(k).length).length &&

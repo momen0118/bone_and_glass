@@ -5,7 +5,7 @@
 // 同名の png と jpg が両方あれば png 優先(CLAUDE.md の規則どおり)。
 // 無いスロットは null(呼び出し側で 画廊 → 絵文字 にフォールバックする)。
 
-import { SPECIMENS } from "./data.js";
+import { SPECIMENS, MATERIALS, SITES } from "./data.js";
 
 export const PORTRAIT_IDS = ["gakusei", "gakusha", "koujika", "kifujin", "collector", "ooya", "wakate"];
 
@@ -22,10 +22,11 @@ export const specTrim = (id) => SPEC_TRIM_BY_ID[id] || SPEC_TRIM;
 const FILES = import.meta.glob("/img/**/*.{png,jpg}", { eager: true, query: "?url", import: "default" });
 const urlFor = (base) => FILES[`${base}.png`] || FILES[`${base}.jpg`] || null;
 
-// 戻り値: { shop: url|null, portraits: {id: url}, specimens: {id: url} }
-// (呼び出し側の形を変えないため async のまま)
+// 戻り値: { shop, portraits: {id: url}, specimens: {id: url}, materials: {id: url}, sites: {id: url} }
+// materials(素材アイコン・ドット絵想定)と sites(採集地カード背景)は将来用の読み込み口。
+// 画像が置かれた日から自動で反映される(無ければ絵文字・現行表示のまま)
 export async function loadFileImages() {
-  const result = { shop: urlFor("/img/shop"), portraits: {}, specimens: {} };
+  const result = { shop: urlFor("/img/shop"), portraits: {}, specimens: {}, materials: {}, sites: {} };
   for (const id of PORTRAIT_IDS) {
     const u = urlFor(`/img/portraits/${id}`);
     if (u) result.portraits[id] = u;
@@ -33,6 +34,14 @@ export async function loadFileImages() {
   for (const id of Object.keys(SPECIMENS)) {
     const u = urlFor(`/img/specimens/${id}`);
     if (u) result.specimens[id] = u;
+  }
+  for (const id of Object.keys(MATERIALS)) {
+    const u = urlFor(`/img/materials/${id}`);
+    if (u) result.materials[id] = u;
+  }
+  for (const s of SITES) {
+    const u = urlFor(`/img/sites/${s.id}`);
+    if (u) result.sites[s.id] = u;
   }
   return result;
 }

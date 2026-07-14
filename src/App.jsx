@@ -319,6 +319,7 @@ export default function BoneAndGlass() {
   const [showBook, setShowBook] = useState(false);
   const [bookTab, setBookTab] = useState("spec");
   const [showGallery, setShowGallery] = useState(false);
+  const [showDecor, setShowDecor] = useState(false);
   const [toast, setToast] = useState(null);
   // 夜のカード送り: idx=表示中の客, collapsed=「残りをまとめる」押下済み
   const [nightView, setNightView] = useState({ idx: 0, collapsed: false });
@@ -582,6 +583,12 @@ export default function BoneAndGlass() {
         {/* ===== 朝 ===== */}
         {g.phase === "morning" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <Panel style={{ background: "transparent" }}>
+              <div style={{ fontSize: 11, color: C.dim, marginBottom: 4 }}>倉庫の素材(採集地の順)</div>
+              <div style={{ fontSize: 13, lineHeight: 1.9 }}>
+                {invEntries.length ? invEntries.map(([k, v]) => <span key={k} style={{ marginRight: 10, whiteSpace: "nowrap" }}>{itemIcon(k)}{itemName(k)}×{v}</span>) : <span style={{ color: C.dim }}>空っぽだ</span>}
+              </div>
+            </Panel>
             <div style={{ fontSize: 12, color: C.dim, lineHeight: 1.8 }}>夜のうちに届いた依頼票に目を通す。今日はどこへ人をやろうか。</div>
             {SITES.map((s) => {
               const locked = s.minRep && g.rep < s.minRep;
@@ -606,29 +613,6 @@ export default function BoneAndGlass() {
                     {itemIcon(s.id)} {itemName(s.id)} {s.cost}G <span style={{ color: C.dim }}>(所持{g.inv[s.id] || 0})</span>
                   </Btn>
                 ))}
-              </div>
-            </Panel>
-            <Panel>
-              <div style={{ fontSize: 15, marginBottom: 6 }}>店の設え <span style={{ fontSize: 11, color: C.dim }}>儲けの使い道</span></div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {SHELF_EXPAND[g.shelfSize + 1] && (
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div style={{ fontSize: 13 }}>硝子棚の増設({g.shelfSize}→{g.shelfSize + 1}枠)<div style={{ fontSize: 11, color: C.dim }}>大工に頼んで棚を継ぎ足す</div></div>
-                    <Btn onClick={expandShelf} disabled={g.gold < SHELF_EXPAND[g.shelfSize + 1]}>{SHELF_EXPAND[g.shelfSize + 1]}G</Btn>
-                  </div>
-                )}
-                {DECOR.map((d) => (
-                  <div key={d.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", opacity: g.decor[d.id] ? 0.55 : 1 }}>
-                    <div style={{ fontSize: 13 }}>{d.icon} {d.name}<div style={{ fontSize: 11, color: C.dim }}>{d.desc}</div></div>
-                    {g.decor[d.id] ? <span style={{ fontSize: 12, color: C.glass }}>設置済</span> : <Btn onClick={() => buyDecor(d)} disabled={g.gold < d.cost}>{d.cost}G</Btn>}
-                  </div>
-                ))}
-              </div>
-            </Panel>
-            <Panel style={{ background: "transparent" }}>
-              <div style={{ fontSize: 11, color: C.dim, marginBottom: 4 }}>倉庫の素材(採集地の順)</div>
-              <div style={{ fontSize: 13, lineHeight: 1.9 }}>
-                {invEntries.length ? invEntries.map(([k, v]) => <span key={k} style={{ marginRight: 10, whiteSpace: "nowrap" }}>{itemIcon(k)}{itemName(k)}×{v}</span>) : <span style={{ color: C.dim }}>空っぽだ</span>}
               </div>
             </Panel>
           </div>
@@ -912,6 +896,7 @@ export default function BoneAndGlass() {
           <div style={{ maxWidth: 560, margin: "0 auto", display: "flex", gap: 8, alignItems: "center" }}>
             <Btn onClick={() => { setBookTab("spec"); setShowBook(true); }} style={{ fontSize: 12, padding: "8px 10px" }}>図鑑 {knownSpecs.size}/{Object.keys(SPECIMENS).length}</Btn>
             <Btn onClick={() => setShowGallery(true)} style={{ fontSize: 12, padding: "8px 10px" }}>画廊</Btn>
+            <Btn onClick={() => setShowDecor(true)} style={{ fontSize: 12, padding: "8px 10px" }}>設え</Btn>
             <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
               {g.phase === "morning" && <Btn primary onClick={() => setG({ ...g, phase: "workshop" })}>工房へ →</Btn>}
               {g.phase === "workshop" && <Btn primary onClick={() => { setSel(null); setG({ ...g, phase: "shelf" }); }}>陳列へ →</Btn>}
@@ -993,6 +978,32 @@ export default function BoneAndGlass() {
                   })}
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* ===== 設え(棚増設・内装) ===== */}
+        {showDecor && (
+          <div onClick={() => setShowDecor(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, zIndex: 50 }}>
+            <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.brass}`, borderRadius: 8, padding: 16, maxWidth: 480, width: "100%", maxHeight: "82vh", overflowY: "auto" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                <div style={{ letterSpacing: "0.25em", color: C.brass, fontSize: 13 }}>店の設え — 儲けの使い道</div>
+                <button onClick={() => setShowDecor(false)} style={{ background: "none", border: "none", color: C.dim, cursor: "pointer", fontFamily: "inherit" }}>閉じる</button>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
+                {SHELF_EXPAND[g.shelfSize + 1] && (
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div style={{ fontSize: 13 }}>硝子棚の増設({g.shelfSize}→{g.shelfSize + 1}枠)<div style={{ fontSize: 11, color: C.dim }}>大工に頼んで棚を継ぎ足す</div></div>
+                    <Btn onClick={expandShelf} disabled={g.gold < SHELF_EXPAND[g.shelfSize + 1]}>{SHELF_EXPAND[g.shelfSize + 1]}G</Btn>
+                  </div>
+                )}
+                {DECOR.map((d) => (
+                  <div key={d.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", opacity: g.decor[d.id] ? 0.55 : 1 }}>
+                    <div style={{ fontSize: 13 }}>{d.icon} {d.name}<div style={{ fontSize: 11, color: C.dim }}>{d.desc}</div></div>
+                    {g.decor[d.id] ? <span style={{ fontSize: 12, color: C.glass }}>設置済</span> : <Btn onClick={() => buyDecor(d)} disabled={g.gold < d.cost}>{d.cost}G</Btn>}
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         )}

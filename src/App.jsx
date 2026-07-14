@@ -47,6 +47,7 @@ function newGame() {
     custBought: {},
     alias: null, aliasHistory: [],
     offer: null, offerResult: null, collectorCd: 0,
+    apprentice: false,
   };
 }
 // v1セーブの取り込み
@@ -64,6 +65,7 @@ function migrate(loaded) {
   g.aliasHistory = loaded.aliasHistory || [];
   g.offer = null; g.offerResult = null;
   g.collectorCd = loaded.collectorCd || 0;
+  g.apprentice = !!loaded.apprentice;
   return g;
 }
 
@@ -199,6 +201,10 @@ function simulateNight(g) {
   let rentText = null;
   if (g.day % RENT_INTERVAL === 0) { gold -= RENT; rentText = `大家が来た。家賃 ${RENT}G を支払った。`; }
 
+  // 見習いの日当
+  let wageText = null;
+  if (g.apprentice) { gold -= 30; wageText = "見習いに日当 30G を払った。"; }
+
   // 蒐集家の来訪判定
   let offer = null;
   if (g.rep >= 18 && (g.collectorCd || 0) <= 0) {
@@ -210,7 +216,7 @@ function simulateNight(g) {
       else if (stockRares.length) { offer = { specId: pick(stockRares), source: "stock" }; }
     }
   }
-  return { log, gold, rep, sold, rentText, shelf, soldByCat, custBought, offer };
+  return { log, gold, rep, sold, rentText, wageText, shelf, soldByCat, custBought, offer };
 }
 
 // ---------- 画像 ----------
@@ -426,6 +432,7 @@ export default function BoneAndGlass() {
   const openStore = () => {
     const res = simulateNight(g);
     const log = [...res.log];
+    if (res.wageText) log.push({ t: "rent", text: res.wageText });
     if (res.rentText) log.push({ t: "rent", text: res.rentText });
     // 通り名の変化
     const oldAlias = aliasOf(g.soldByCat), newAlias = aliasOf(res.soldByCat);
@@ -475,10 +482,16 @@ export default function BoneAndGlass() {
     }
   };
 
+  // ---- 見習い ----
+  const toggleApprentice = () => {
+    const hire = !g.apprentice;
+    setG({ ...g, apprentice: hire, ap: MAX_AP + (hire ? 1 : 0) });
+  };
+
   // ---- 翌朝 ----
   const nextDay = () => {
     const ng = {
-      ...g, day: g.day + 1, phase: "morning", ap: MAX_AP,
+      ...g, day: g.day + 1, phase: "morning", ap: MAX_AP + (g.apprentice ? 1 : 0),
       nightLog: [], nightRent: null, craftLog: [], offer: null, offerResult: null,
       collectorCd: Math.max(0, (g.collectorCd || 0) - 1),
     };
@@ -615,6 +628,19 @@ export default function BoneAndGlass() {
                 ))}
               </div>
             </Panel>
+            {g.rep >= 15 && (
+              <Panel>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div>
+                    <div style={{ fontSize: 15 }}>見習い <span style={{ fontSize: 11, color: C.dim }}>日当30G</span></div>
+                    <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>
+                      {g.apprentice ? "今日は店の手伝いに入っている(作業+1)" : "今日は休ませている"}
+                    </div>
+                  </div>
+                  <Btn onClick={toggleApprentice}>{g.apprentice ? "休ませる" : "雇う"}</Btn>
+                </div>
+              </Panel>
+            )}
           </div>
         )}
 
@@ -623,7 +649,7 @@ export default function BoneAndGlass() {
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div style={{ fontSize: 12, color: C.dim }}>素材を選んで、仕立て方を決める。</div>
-              <div style={{ fontSize: 13, color: C.brass }}>作業残り {"●".repeat(g.ap)}{"○".repeat(MAX_AP - g.ap)}</div>
+              <div style={{ fontSize: 13, color: C.brass }}>作業残り {"●".repeat(g.ap)}{"○".repeat(Math.max(0, MAX_AP + (g.apprentice ? 1 : 0) - g.ap))}</div>
             </div>
 
             <Panel>

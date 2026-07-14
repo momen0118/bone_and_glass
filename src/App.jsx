@@ -51,7 +51,7 @@ function newGame() {
     apprentice: false,
     trust: 0, // 蒐集家の信頼(内部値、-6〜+6。画面には出さない)
     lastRent: RENT, // 前回支払った家賃額
-    ownShop: false, buyoutPending: false, // 店の買い取り(pendingは買った日の夜の演出用)
+    ownShop: false, // 店の買い取り
     gakuseiGraduated: false, // 学生の就職イベント(一度きり)
     swampUnlocked: false,    // 霧の湿原(老学者への累計販売で解禁)
     caveUnlocked: false, gatherCount: 0, // 石灰洞窟(森・入り江への依頼の累計で解禁)
@@ -81,7 +81,6 @@ function migrate(loaded) {
   if (!("alias" in loaded)) g.alias = aliasOf(g.soldByCat);
   g.lastRent = typeof loaded.lastRent === "number" ? loaded.lastRent : RENT;
   g.ownShop = !!loaded.ownShop;
-  g.buyoutPending = false;
   g.gakuseiGraduated = !!loaded.gakuseiGraduated;
   // 旧セーブ: 湿原は評判10以上なら解禁済み扱い、洞窟は解禁済み扱い
   g.swampUnlocked = loaded.swampUnlocked !== undefined ? !!loaded.swampUnlocked : (loaded.rep || 0) >= 10;
@@ -264,11 +263,9 @@ function simulateNight(g) {
     log.push({ t: "event", cid: "gakusha", text: SWAMP_UNLOCK.text });
   }
 
-  // 家賃(店を買い取った夜は、大家の去り際のイベント行に差し替わる)
+  // 家賃(店を買い取ったあとは徴収なし)
   let rentLog = null, rentPaid = null;
-  if (g.buyoutPending) {
-    rentLog = { t: "event", cid: "ooya", text: `大家は金を数え終え、しばらく黙っていた。「${OOYA.farewell}」` };
-  } else if (!g.ownShop && g.day % RENT_INTERVAL === 0) {
+  if (!g.ownShop && g.day % RENT_INTERVAL === 0) {
     const rent = rentFor(g.rep); // 開店前(朝時点)の評判で判定
     const cash = g.gold + gold;  // 支払い直前の所持金
     gold -= rent; rentPaid = rent;
@@ -434,6 +431,8 @@ export default function BoneAndGlass() {
   const [nightView, setNightView] = useState({ idx: 0, collapsed: false });
   // 洞窟解禁の朝のイベント行(その朝のあいだだけ表示)
   const [caveEvent, setCaveEvent] = useState(null);
+  // 店買い取りの専用演出(null=非表示 / 0〜=表示中のステップ)
+  const [buyoutStep, setBuyoutStep] = useState(null);
 
   useEffect(() => {
     (async () => {
@@ -496,10 +495,12 @@ export default function BoneAndGlass() {
     setG({ ...g, gold: g.gold - d.cost, decor: { ...g.decor, [d.id]: true } });
     flash(`${d.name}を設えた`);
   };
-  // 店の買い取り(大家の別れの言葉はその夜の営業ログで)
+  // 店の買い取り: 実行した瞬間、大家との専用イベント表示に切り替える
   const buyShop = () => {
     if (g.ownShop || g.gold < SHOP_BUYOUT) return;
-    setG({ ...g, gold: g.gold - SHOP_BUYOUT, ownShop: true, buyoutPending: true });
+    setG({ ...g, gold: g.gold - SHOP_BUYOUT, ownShop: true });
+    setShowDecor(false);
+    setBuyoutStep(0);
   };
 
   // ---- 昼 ----
@@ -619,7 +620,6 @@ export default function BoneAndGlass() {
     const ng = {
       ...g, day: g.day + 1, phase: "morning", ap: MAX_AP + (g.apprentice ? 1 : 0),
       nightLog: [], nightRent: null, craftLog: [], offer: null, offerResult: null,
-      buyoutPending: false,
       collectorCd: Math.max(0, (g.collectorCd || 0) - 1),
       // 信頼は負のときだけ毎朝+0.5ずつ0へ回復(正の値は減衰しない)
       trust: (g.trust || 0) < 0 ? Math.min(0, (g.trust || 0) + 0.5) : (g.trust || 0),
@@ -1329,6 +1329,30 @@ export default function BoneAndGlass() {
           {toast}
         </div>
       )}
+
+      {/* ===== 店買い取りの専用演出(タップで読み進める) ===== */}
+      {buyoutStep !== null && (() => {
+        const step = OOYA.buyoutScene[buyoutStep];
+        const advance = () => setBuyoutStep(buyoutStep + 1 < OOYA.buyoutScene.length ? buyoutStep + 1 : null);
+        return (
+          <div onClick={advance} style={{ position: "fixed", inset: 0, background: "rgba(10,8,6,0.96)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 28, zIndex: 70, cursor: "pointer" }}>
+            <div style={{ width: "58%", maxWidth: 260 }}>
+              <div style={{ border: `3px double ${C.brass}`, borderRadius: 4, padding: 3, background: "#0e0b08", boxShadow: "0 2px 14px rgba(0,0,0,0.6)" }}>
+                <div style={{ aspectRatio: "1 / 1", overflow: "hidden", borderRadius: 2, background: "#171310", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  {(fileImgs && fileImgs.portraits && fileImgs.portraits.ooya) || (imgs.ooya && imgs.ooya.data)
+                    ? <img src={(fileImgs && fileImgs.portraits && fileImgs.portraits.ooya) || imgs.ooya.data} alt=""
+                        style={{ width: "100%", height: "100%", objectFit: "cover", transform: `scale(${fileImgs && fileImgs.portraits && fileImgs.portraits.ooya ? FILE_ZOOM.portrait : (imgs.ooya && imgs.ooya.zoom) || 1.15})`, filter: "sepia(0.3) contrast(1.05) brightness(0.98)" }} />
+                    : <span style={{ fontSize: 72 }}>{OOYA.icon}</span>}
+                </div>
+              </div>
+            </div>
+            <div style={{ marginTop: 26, minHeight: 76, maxWidth: 340, textAlign: "center", fontSize: 14, lineHeight: 2.1, color: step.t === "line" ? C.ivory : C.dim }}>
+              {step.t === "line" ? `大家「${step.text}」` : step.text}
+            </div>
+            <div style={{ marginTop: 14, fontSize: 11, color: "#5a4f3d" }}>▼</div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

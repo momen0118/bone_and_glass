@@ -189,6 +189,9 @@ export const CUSTOMERS = [
     } },
 ];
 
+// ---------- 大家 ----------
+export const OOYA = { id: "ooya", name: "大家", icon: "🗝️" };
+
 export const COLLECTOR = {
   id: "collector", name: "外套の蒐集家", icon: "🕯️",
   appear: "……夜分に失礼。硝子の光が見えたものでね。",

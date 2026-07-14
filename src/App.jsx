@@ -11,11 +11,11 @@ import {
   MATERIALS, MAT_ORDER, CAT_NAME, TAG_NAME, SPECIMENS,
   PROCESSES, procLevel, RECIPES, SPEC_PROC, SECONDARY,
   SITES, SUPPLY_SHOP, SHELF_EXPAND, DECOR,
-  CUSTOMERS, COLLECTOR, SETS, ALIASES, PRICE_MODES,
+  CUSTOMERS, COLLECTOR, OOYA, SETS, ALIASES, PRICE_MODES,
   RENT, RENT_INTERVAL, MAX_AP,
 } from "./data.js";
 import { storage } from "./storage.js";
-import { loadFileImages } from "./images.js";
+import { loadFileImages, FILE_ZOOM } from "./images.js";
 
 // ---------- ユーティリティ ----------
 const rnd = (n) => Math.floor(Math.random() * n);
@@ -257,6 +257,8 @@ const IMG_SLOTS = [
   { id: "koujika",   name: "好事家" },
   { id: "kifujin",   name: "貴婦人" },
   { id: "collector", name: "外套の蒐集家" },
+  { id: "ooya",      name: "大家" },
+  { id: "wakate",    name: "若い研究者" },
 ];
 const ZOOMS = [1.0, 1.15, 1.35];
 function resizeImage(file, maxW, maxH, cb) {
@@ -297,14 +299,20 @@ const Btn = ({ children, onClick, disabled, primary, style }) => (
 const TagChip = ({ t }) => (
   <span style={{ fontSize: 10, border: `1px solid ${C.brass}`, color: C.brass, borderRadius: 3, padding: "0 4px", marginLeft: 4 }}>{TAG_NAME[t]}</span>
 );
+// 肖像の絵文字フォールバック
+const portraitFallback = (cid) =>
+  cid === "collector" ? COLLECTOR.icon
+  : cid === "ooya" ? OOYA.icon
+  : (CUSTOMERS.find((c) => c.id === cid) || {}).icon || "·";
+
 // 肖像: リポジトリ画像 → 画廊(アップロード) → 絵文字 の順
 const Portrait = ({ cid, imgs, fileImgs, size = 34 }) => {
   const fileUrl = fileImgs && fileImgs.portraits && fileImgs.portraits[cid];
   const meta = imgs && imgs[cid];
-  const fb = cid === "collector" ? COLLECTOR.icon : (CUSTOMERS.find((c) => c.id === cid) || {}).icon || "·";
+  const fb = portraitFallback(cid);
   const src = fileUrl || (meta && meta.data);
   if (!src) return <span style={{ fontSize: Math.round(size * 0.62), width: size, textAlign: "center", flexShrink: 0 }}>{fb}</span>;
-  const zoom = fileUrl ? 1 : (meta.zoom || 1.15);
+  const zoom = fileUrl ? FILE_ZOOM.portrait : (meta.zoom || 1.15);
   return (
     <span style={{ width: size, height: size, borderRadius: "50%", overflow: "hidden", display: "inline-block", border: `1px solid ${C.line}`, flexShrink: 0, background: "#000" }}>
       <img src={src} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", transform: `scale(${zoom})`, filter: "sepia(0.3) contrast(1.05) brightness(0.98)" }} />
@@ -316,8 +324,8 @@ const FramedPortrait = ({ cid, imgs, fileImgs }) => {
   const fileUrl = fileImgs && fileImgs.portraits && fileImgs.portraits[cid];
   const meta = imgs && imgs[cid];
   const src = fileUrl || (meta && meta.data);
-  const fb = cid === "collector" ? COLLECTOR.icon : (CUSTOMERS.find((c) => c.id === cid) || {}).icon || "·";
-  const zoom = fileUrl ? 1 : (meta && meta.zoom) || 1.15;
+  const fb = portraitFallback(cid);
+  const zoom = fileUrl ? FILE_ZOOM.portrait : (meta && meta.zoom) || 1.15;
   return (
     <div style={{ width: "40%", flexShrink: 0 }}>
       <div style={{ border: `3px double ${C.brass}`, borderRadius: 4, padding: 3, background: "#0e0b08", boxShadow: "0 2px 10px rgba(0,0,0,0.45)" }}>
@@ -560,7 +568,7 @@ export default function BoneAndGlass() {
   if (screen === "title") return (
     <div style={{ minHeight: "100vh", background: C.bg, position: "relative", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: "Georgia, 'Yu Mincho', serif", padding: 24, overflow: "hidden" }}>
       {shopBg && (
-        <div style={{ position: "absolute", inset: 0, backgroundImage: `url(${shopBg})`, backgroundSize: "cover", backgroundPosition: "center", opacity: 0.35, filter: "sepia(0.2) brightness(0.8)" }} />
+        <div style={{ position: "absolute", inset: 0, backgroundImage: `url(${shopBg})`, backgroundSize: "cover", backgroundPosition: "center", opacity: 0.35, filter: "sepia(0.2) brightness(0.8)", transform: `scale(${fileImgs && fileImgs.shop ? FILE_ZOOM.shop : 1})` }} />
       )}
       <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to bottom, rgba(20,17,13,0.3), rgba(20,17,13,0.92))" }} />
       <div style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "center", color: C.ivory }}>

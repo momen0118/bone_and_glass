@@ -49,9 +49,12 @@ function newGame() {
     offer: null, offerResult: null, collectorCd: 0,
     apprentice: false,
     trust: 0, // 蒐集家の信頼(内部値、-6〜+6。画面には出さない)
+    lastRent: RENT, // 前回支払った家賃額
   };
 }
 const clampTrust = (t) => Math.max(-6, Math.min(6, t));
+// 家賃の段階化: 家賃日の夜の評判で判定
+const rentFor = (rep) => (rep >= 40 ? 200 : rep >= 20 ? 150 : RENT);
 // v1セーブの取り込み
 function migrate(loaded) {
   const base = newGame();
@@ -71,6 +74,7 @@ function migrate(loaded) {
   g.trust = typeof loaded.trust === "number" ? clampTrust(loaded.trust) : 0;
   // 通り名を持たない旧セーブは、従来の判定(最多カテゴリ5個以上)で引き継ぐ
   if (!("alias" in loaded)) g.alias = aliasOf(g.soldByCat);
+  g.lastRent = typeof loaded.lastRent === "number" ? loaded.lastRent : RENT;
   return g;
 }
 
@@ -215,8 +219,14 @@ function simulateNight(g) {
   }
   if (!visitors) log.push({ t: "misc", text: "今夜は誰も来なかった。硝子が静かに光っている。" });
 
-  let rentText = null;
-  if (g.day % RENT_INTERVAL === 0) { gold -= RENT; rentText = `大家が来た。家賃 ${RENT}G を支払った。`; }
+  let rentText = null, rentPaid = null;
+  if (g.day % RENT_INTERVAL === 0) {
+    const rent = rentFor(g.rep + rep); // 家賃日の夜(営業終わり)の評判で判定
+    gold -= rent; rentPaid = rent;
+    rentText = rent > (g.lastRent != null ? g.lastRent : RENT)
+      ? `大家「景気が良さそうじゃないか、ええ?」— 家賃は ${rent}G になった。`
+      : `大家が来た。家賃 ${rent}G を支払った。`;
+  }
 
   // 見習いの日当
   let wageText = null;
@@ -236,7 +246,7 @@ function simulateNight(g) {
       else if (stockRares.length) { offer = { specId: pick(stockRares), source: "stock" }; }
     }
   }
-  return { log, gold, rep, sold, rentText, wageText, shelf, soldByCat, custBought, offer };
+  return { log, gold, rep, sold, rentText, rentPaid, wageText, shelf, soldByCat, custBought, offer };
 }
 
 // ---------- 画像 ----------
@@ -471,6 +481,7 @@ export default function BoneAndGlass() {
       soldByCat: res.soldByCat, custBought: res.custBought,
       alias: newAlias, aliasHistory,
       offer: res.offer, offerResult: null,
+      lastRent: res.rentPaid != null ? res.rentPaid : g.lastRent,
     });
     setNightView({ idx: 0, collapsed: false });
   };
@@ -620,7 +631,7 @@ export default function BoneAndGlass() {
           </div>
           <div style={{ textAlign: "right", fontSize: 13 }}>
             <div style={{ color: g.gold < 0 ? C.red : C.brass, fontVariantNumeric: "tabular-nums" }}>{g.gold} G{g.gold < 0 ? "(借金)" : ""}</div>
-            <div style={{ color: C.dim }}>評判 {g.rep} · <span style={{ color: daysToRent === 0 ? C.red : C.dim }}>{daysToRent === 0 ? "今夜家賃" : `家賃まで${daysToRent}日`}</span></div>
+            <div style={{ color: C.dim }}>評判 {g.rep} · <span style={{ color: daysToRent === 0 ? C.red : C.dim }}>{daysToRent === 0 ? "今夜家賃" : `家賃${rentFor(g.rep)}Gまで${daysToRent}日`}</span></div>
           </div>
         </div>
 
@@ -945,7 +956,7 @@ export default function BoneAndGlass() {
               </Panel>
             )}
 
-            {daysToRent === 1 && <div style={{ fontSize: 12, color: C.red, textAlign: "center" }}>明日は家賃の日({RENT}G)。</div>}
+            {daysToRent === 1 && <div style={{ fontSize: 12, color: C.red, textAlign: "center" }}>明日は家賃の日({rentFor(g.rep)}G)。</div>}
 
             {g.day % 30 === 0 && (
               <Panel style={{ borderColor: C.brass }}>

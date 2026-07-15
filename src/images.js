@@ -7,11 +7,12 @@
 
 import { SPECIMENS, MATERIALS, SITES } from "./data.js";
 
-export const PORTRAIT_IDS = ["gakusei", "gakusha", "koujika", "kifujin", "collector", "ooya", "wakate"];
+export const PORTRAIT_IDS = ["gakusei", "gakusha", "koujika", "kifujin", "collector", "ooya", "wakate", "mushiya"];
 
 // リポジトリ読み込み画像のスロット種別ごとの初期zoom(ここ一箇所で調整する)
 // 肖像は横長(左右に壁紙、中央に楕円の額)なので、円形切り抜きに楕円の内側が収まるよう拡大する
-export const FILE_ZOOM = { portrait: 1.7, shop: 1.0 };
+// shop=1.1 はタイトル背景の拡大トリム(店内観の外周の紙フチを画面外へ出す)
+export const FILE_ZOOM = { portrait: 1.7, shop: 1.1 };
 
 // 標本画像の外周トリム倍率: 生成画像の白フチ・右下の署名を表示時に切り落とす(元ファイルは加工しない)
 export const SPEC_TRIM = 1.15;
@@ -26,7 +27,7 @@ const urlFor = (base) => FILES[`${base}.png`] || FILES[`${base}.jpg`] || null;
 // materials(素材アイコン・ドット絵想定)と sites(採集地カード背景)は将来用の読み込み口。
 // 画像が置かれた日から自動で反映される(無ければ絵文字・現行表示のまま)
 export async function loadFileImages() {
-  const result = { shop: urlFor("/img/shop"), portraits: {}, specimens: {}, materials: {}, sites: {} };
+  const result = { shop: urlFor("/img/shop"), logo: urlFor("/img/logo"), portraits: {}, specimens: {}, materials: {}, sites: {} };
   for (const id of PORTRAIT_IDS) {
     const u = urlFor(`/img/portraits/${id}`);
     if (u) result.portraits[id] = u;

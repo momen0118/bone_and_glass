@@ -233,7 +233,7 @@ export const CUSTOMERS = [
       poor: ["桁がひとつ違うや……見てるだけでも楽しいけど"],
       big: ["一世一代の買い物です!"],
     } },
-  { id: "gakusha", name: "老学者", icon: "🧐", minRep: 8, budget: 420, weight: 3,
+  { id: "gakusha", name: "老学者", icon: "🧐", minRep: 8, budget: 420, floor: 100, weight: 3,
     likesTags: ["scholar"], likesCats: ["bone", "mineral"],
     lines: {
       buy: ["ふむ、保存状態がよろしい", "研究室に置きたい", "この骨の並び…実に正確だ"],
@@ -243,7 +243,7 @@ export const CUSTOMERS = [
       poor: ["研究費の申請が通ってからだ……"],
       big: ["これは学術的発見に等しい"],
     } },
-  { id: "koujika", name: "好事家", icon: "🎩", minRep: 16, budget: 520, weight: 3,
+  { id: "koujika", name: "好事家", icon: "🎩", minRep: 16, budget: 520, floor: 150, weight: 3,
     likesTags: ["rare"], likesCats: [],
     lines: {
       buy: ["珍しいものはあるかね", "よそでは見ない品だ", "私の部屋に飾るとしよう"],
@@ -253,7 +253,7 @@ export const CUSTOMERS = [
       poor: ["金貨が足りん。屋敷から取ってくるべきだったか"],
       big: ["この出会いに乾杯したい気分だ"],
     } },
-  { id: "kifujin", name: "貴婦人", icon: "🪞", minRep: 26, budget: 650, weight: 2,
+  { id: "kifujin", name: "貴婦人", icon: "🪞", minRep: 26, budget: 650, floor: 200, weight: 2,
     likesTags: ["fancy"], likesCats: [],
     lines: {
       buy: ["あら、綺麗…", "客間に映えそうだわ", "包んでちょうだい"],

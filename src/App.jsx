@@ -31,6 +31,9 @@ function weightedPick(pairs) {
 }
 const itemName = (id) => (specOf(id) ? specOf(id).name : MATERIALS[id].name);
 const itemIcon = (id) => (specOf(id) ? specOf(id).icon : MATERIALS[id].icon);
+// カード表示のセリフ末に句点を補う(既に文末記号・終助詞「が」等で終わる文はそのまま)
+const SENTENCE_END = "。．！？!?…‥〜~、」』が";
+const withPeriod = (s) => (!s || SENTENCE_END.includes(s[s.length - 1]) ? s : s + "。");
 const round5 = (n) => Math.round(n / 5) * 5;
 
 function newGame() {
@@ -249,7 +252,8 @@ function simulateNight(g) {
     }
     if (!slots.length) { log.push({ t: "misc", cid: c.id, text: `${c.name}が覗いたが、棚は空だった。`, line: null }); continue; }
 
-    const afford = slots.filter((s) => priceAt(s.i) <= c.budget);
+    // 購入候補 = 表示価格が下限(客ごと)以上かつ予算以下。候補ゼロは従来のpass扱い
+    const afford = slots.filter((s) => priceAt(s.i) >= (c.floor || 0) && priceAt(s.i) <= c.budget);
     if (!afford.length) {
       const line = custLine(c, bought, "poor");
       log.push({ t: "misc", cid: c.id, text: `${c.name}「${line}」`, line });
@@ -852,7 +856,7 @@ export default function BoneAndGlass() {
   const shopBg = (fileImgs && fileImgs.shop) || (imgs.shop && imgs.shop.data) || null;
 
   if (screen === "title") return (
-    <div style={{ minHeight: "100vh", background: C.bg, position: "relative", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: "Georgia, 'Yu Mincho', serif", padding: 24, overflow: "hidden" }}>
+    <div style={{ minHeight: "100vh", background: C.bg, position: "relative", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start", paddingTop: "34vh", fontFamily: "Georgia, 'Yu Mincho', serif", paddingLeft: 24, paddingRight: 24, paddingBottom: 24, overflow: "hidden" }}>
       {shopBg && (
         <div style={{ position: "absolute", inset: 0, backgroundImage: `url(${shopBg})`, backgroundSize: "cover", backgroundPosition: "center", opacity: 0.35, filter: "sepia(0.2) brightness(0.8)",
           ...(fileImgs && fileImgs.shop && FILE_ZOOM.shop !== 1 ? { transform: `scale(${FILE_ZOOM.shop})` } : null) }} />
@@ -926,8 +930,8 @@ export default function BoneAndGlass() {
     <div style={{ minHeight: "100vh", background: C.bg, color: C.ivory, fontFamily: "Georgia, 'Yu Mincho', serif" }}>
       <div style={{ maxWidth: 560, margin: "0 auto", paddingTop: 12, paddingLeft: 12, paddingRight: 12, paddingBottom: "calc(96px + env(safe-area-inset-bottom, 0px))" }}>
 
-        {/* ヘッダー */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", borderBottom: `1px solid ${C.line}`, paddingBottom: 8, marginBottom: 10 }}>
+        {/* ヘッダー(左右ブロックの下端を揃える。所持金をスコアとして主役に) */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 10, borderBottom: `1px solid ${C.line}`, paddingBottom: 8, marginBottom: 10 }}>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 10, letterSpacing: "0.3em", color: C.dim, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>骨と硝子の店</div>
             {(aliasCat || g.anaAlias) && (
@@ -937,9 +941,9 @@ export default function BoneAndGlass() {
             )}
             <div style={{ fontSize: 16, letterSpacing: "0.1em", whiteSpace: "nowrap" }}>{g.day}日目 <MoonIcon day={g.day} fileImgs={fileImgs} size={14} /> <span style={{ color: C.brass }}>{PHASE_LABEL[g.phase]}</span></div>
           </div>
-          <div style={{ textAlign: "right", fontSize: 13 }}>
-            <div style={{ color: g.gold < 0 ? C.red : C.brass, fontVariantNumeric: "tabular-nums" }}>{g.gold} G{g.gold < 0 ? "(借金)" : ""}</div>
-            <div style={{ color: C.dim }}>評判 {g.rep} · {g.ownShop
+          <div style={{ textAlign: "right", flexShrink: 0 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, letterSpacing: "0.03em", lineHeight: 1.2, color: g.gold < 0 ? C.red : C.brass, fontVariantNumeric: "tabular-nums" }}>{g.gold} G{g.gold < 0 ? "(借金)" : ""}</div>
+            <div style={{ fontSize: 12, color: C.dim, marginTop: 2 }}>評判 {g.rep} · {g.ownShop
               ? <span style={{ color: C.glass }}>自分の店</span>
               : <span style={{ color: daysToRent === 0 ? C.red : C.dim }}>{daysToRent === 0 ? "今夜家賃" : `家賃${rentFor(g.rep)}Gまで${daysToRent}日`}</span>}</div>
           </div>
@@ -1098,7 +1102,7 @@ export default function BoneAndGlass() {
                         <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>
                           {!possible ? "この素材には合わないようだ"
                             : !lvOk ? `熟練が足りない — ${p.name}Lv${r.minLv}になれば、何かできそうだ`
-                            : known ? `→ ${SPECIMENS[r.to].icon} ${SPECIMENS[r.to].name}(基準 ${round5(basePrice(g, r.to))}G)`
+                            : known ? `→ ${SPECIMENS[r.to].icon} ${SPECIMENS[r.to].name}(基準 ${round5(basePrice(g, r.to))}G${(g.spec[r.to] || 0) > 0 ? ` · 在庫${g.spec[r.to]}` : ""})`
                             : "→ ??? 何ができるかは、やってみないと分からない"}
                         </div>
                       )}
@@ -1233,10 +1237,12 @@ export default function BoneAndGlass() {
                 <div style={{ fontSize: 11, color: C.dim, fontVariantNumeric: "tabular-nums" }}>{nightView.idx + 1} / {nightCust.length} 組</div>
               </div>
               <div onClick={nightAdvance} style={{ cursor: "pointer" }}>
-                <Panel style={l.big ? {
-                  borderColor: "#e0b96a", boxShadow: "0 0 14px rgba(201,161,94,0.15)",
-                  ...(l.grad ? { background: "#282013" } : null),
-                } : null}>
+                {/* border/boxShadow/background を毎回明示(金枠スタイルが次カードに引き継がれる白枠バグの修正) */}
+                <Panel style={{
+                  border: `1px solid ${l.big ? "#e0b96a" : C.line}`,
+                  boxShadow: l.big ? "0 0 14px rgba(201,161,94,0.15)" : "none",
+                  background: l.big && l.grad ? "#282013" : C.panel,
+                }}>
                   <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
                     <FramedPortrait cid={l.cid} imgs={imgs} fileImgs={fileImgs} />
                     <div style={{ flex: 1, minWidth: 0 }}>

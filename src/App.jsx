@@ -14,6 +14,7 @@ import {
   CUSTOMERS, COLLECTOR, OOYA, SHOP_BUYOUT, SETS, ALIASES, PRICE_MODES,
   GAKUSEI_KOUHAI_LINE, GAKUSEI_GRAD, SWAMP_UNLOCK, CAVE_UNLOCK, SPEC_LORE,
   WORM, isWorm, wormId, baseId, WORM_CATS, specOf, CAMPHOR, mushiDiscover, MUSHIYA,
+  moonPhase, MOON_OPEN, MOON_BOOST, ANA_ALIAS,
   RENT, RENT_INTERVAL, MAX_AP,
 } from "./data.js";
 import { storage } from "./storage.js";
@@ -61,6 +62,7 @@ function newGame() {
     mushiFirstDone: false,  // 初回虫食いイベント消化=樟脳解禁
     mushiFirstNight: false, // 初回イベント: 虫湧き済みで蟲屋の来店待ち
     mushiMorning: null,     // 翌朝に見せる虫食い発見文
+    mushiSold: 0, anaAlias: false, // 蟲屋への累計売却数と隠し通り名「穴物堂」
   };
 }
 const clampTrust = (t) => Math.max(-6, Math.min(6, t));
@@ -97,6 +99,8 @@ function migrate(loaded) {
   g.mushiFirstDone = !!loaded.mushiFirstDone;
   g.mushiFirstNight = !!loaded.mushiFirstNight;
   g.mushiMorning = loaded.mushiMorning || null;
+  g.mushiSold = loaded.mushiSold || 0; // 旧セーブは0開始
+  g.anaAlias = !!loaded.anaAlias;
   return g;
 }
 
@@ -189,8 +193,11 @@ function simulateNight(g) {
   const mode = PRICE_MODES[g.priceMode];
   const sets = activeSets(shelf, g.shelfSize);
 
-  // 来客数の上限は棚数に連動(棚6→最大8人、棚9→最大11人)
-  let visitors = Math.min(g.shelfSize + 2, 2 + Math.floor(g.rep / 8) + (g.decor.lamp ? 1 : 0) + (Math.random() < 0.5 ? 1 : 0));
+  // 来客数(月齢: 満月+2 / 新月-2。上限は棚数連動、新月の下限1)
+  const phase = moonPhase(g.day);
+  let visitors = 2 + Math.floor(g.rep / 8) + (g.decor.lamp ? 1 : 0) + (Math.random() < 0.5 ? 1 : 0)
+    + (phase === 4 ? 2 : 0) + (phase === 0 ? -2 : 0);
+  visitors = Math.min(g.shelfSize + 2, Math.max(phase === 0 ? 1 : 0, visitors));
   const aliasCat = g.alias;
   const pool = CUSTOMERS.filter((c) => g.rep >= c.minRep && (!c.flag || g[c.flag])).map((c) => {
     let w = c.weight;
@@ -328,12 +335,16 @@ function simulateNight(g) {
   }
 
   // 蟲屋の来店処理(来客上限とは別枠)
+  let mushiSold = g.mushiSold || 0;
+  let anaAlias = g.anaAlias;
   if (mushiyaVisit) {
     const wormSlots = shelf.map((id, i) => ({ id, i })).filter((s) => s.id && isWorm(s.id) && s.i < g.shelfSize);
     const buyWorm = () => {
       const t = pick(wormSlots);
-      const price = round5(basePrice(g, t.id) * 0.7); // 基準価(50%)の70%固定・評判/カウント不変
+      // 蟲屋の買値: 基準価(50%)の70%固定。穴物堂の獲得後は75%に上がる(評判/販売カウント不変)
+      const price = round5(basePrice(g, t.id) * (anaAlias ? 0.75 : 0.70));
       shelf[t.i] = null; gold += price;
+      mushiSold += 1; // 蟲屋への累計売却数(穴物堂の判定に使う)
       return { id: t.id, price };
     };
     if (firstMushiya) {
@@ -359,6 +370,11 @@ function simulateNight(g) {
       log.push({ t: "misc", cid: "mushiya", line: MUSHIYA.empty, text: `蟲屋「${MUSHIYA.empty}」` });
     }
   }
+  // 隠し通り名「穴物堂」: 蟲屋への累計売却が閾値に達した夜、営業ログ末尾に噂
+  if (!anaAlias && mushiSold >= ANA_ALIAS.threshold) {
+    anaAlias = true;
+    log.push({ t: "alias", text: ANA_ALIAS.noise });
+  }
 
   // 湿原の解禁(老学者への累計販売が閾値に達した夜、営業ログ末尾にイベント行)
   let swampUnlocked = g.swampUnlocked;
@@ -373,19 +389,26 @@ function simulateNight(g) {
     const rent = rentFor(g.rep); // 開店前(朝時点)の評判で判定
     const cash = g.gold + gold;  // 支払い直前の所持金
     gold -= rent; rentPaid = rent;
-    let text;
+    // 家賃回収は客と同じカードに昇格。line=大家のセリフ / narr=セリフなしの地の文 / payLabel=支払額 / text=まとめ時の一行
+    let line = null, narr = null, payLabel, text;
     if (rent > (g.lastRent != null ? g.lastRent : RENT)) {
-      text = rent >= 200
-        ? `大家「${OOYA.raise200}」— 家賃は ${rent}G になった。`
-        : `大家「${OOYA.raise150}」— 家賃は ${rent}G になった。`;
+      line = rent >= 200 ? OOYA.raise200 : OOYA.raise150;
+      payLabel = `家賃 ${rent}G に`;
+      text = `大家「${line}」— 家賃は ${rent}G になった。`;
     } else if (cash < rent) {
-      text = `大家「${OOYA.broke}」`;
+      line = OOYA.broke;
+      payLabel = `家賃 ${rent}G(ツケ)`;
+      text = `大家「${line}」`;
     } else if (Math.random() < 0.5) {
-      text = `大家「${pick(OOYA.normal)}」— 家賃 ${rent}G を支払った。`;
+      line = pick(OOYA.normal);
+      payLabel = `家賃 ${rent}G`;
+      text = `大家「${line}」— 家賃 ${rent}G を支払った。`;
     } else {
+      narr = "大家が来た。";
+      payLabel = `家賃 ${rent}G`;
       text = `大家が来た。家賃 ${rent}G を支払った。`;
     }
-    rentLog = { t: "rent", cid: "ooya", text };
+    rentLog = { t: "rent", cid: "ooya", line, narr, payLabel, text };
   }
 
   // 見習いの日当
@@ -408,7 +431,7 @@ function simulateNight(g) {
   }
   return { log, gold, rep, sold, rentLog, rentPaid, wageText, shelf, spec, soldByCat, custBought, offer,
     gakuseiGraduated: graduated, swampUnlocked,
-    camphor, mushiFirstDone, mushiFirstNight, mushiMorning };
+    camphor, mushiFirstDone, mushiFirstNight, mushiMorning, mushiSold, anaAlias };
 }
 
 // ---------- 画像 ----------
@@ -446,6 +469,41 @@ function resizeImage(file, maxW, maxH, cb) {
 // ============================================================
 // 下部バーのボタン共通スタイル(折り返し禁止・狭い幅でも一行に収める)
 const FOOT_BTN = { fontSize: 12, padding: "8px 9px", whiteSpace: "nowrap" };
+
+// 月相アイコン: SVGで自前描画(象牙色の円+背景色の影で7相を表現)。
+// 画像 img/moon/{相番号}.png があればそれを pixelated で表示。効果の説明は一切なし
+const MoonIcon = ({ day, fileImgs, size = 14 }) => {
+  const phase = moonPhase(day);
+  const url = fileImgs && fileImgs.moon && fileImgs.moon[phase];
+  if (url) return <img src={url} alt="" width={size} height={size} style={{ imageRendering: "pixelated", display: "inline-block", verticalAlign: "middle" }} />;
+  const r = 45, cx = 50, cy = 50;
+  // 新月: 細い輪郭線だけの暗い円
+  if (phase === 0) return (
+    <svg width={size} height={size} viewBox="0 0 100 100" style={{ display: "inline-block", verticalAlign: "middle" }}>
+      <circle cx={cx} cy={cy} r={r} fill={C.bg} stroke={C.ivory} strokeOpacity="0.5" strokeWidth="3" />
+    </svg>
+  );
+  // 満月: 象牙色の全円
+  if (phase === 4) return (
+    <svg width={size} height={size} viewBox="0 0 100 100" style={{ display: "inline-block", verticalAlign: "middle" }}>
+      <circle cx={cx} cy={cy} r={r} fill={C.ivory} />
+    </svg>
+  );
+  // 三日月・上弦・十三夜=満ちる(右が明るい)/ 下弦・有明=欠ける(左が明るい)
+  const waxing = phase <= 3;
+  const f = phase === 2 || phase === 5 ? 0.5 : (phase === 1 || phase === 6 ? 0.25 : 0.75);
+  const rx = Math.abs(r * Math.cos(Math.PI * f)).toFixed(2);
+  const outerSweep = waxing ? 1 : 0;
+  // 三日月/有明(f<0.5)は終端線が明部側へ膨らみ細い弧に、十三夜/下弦(f>0.5)は暗部側へ膨らむ
+  const innerSweep = waxing ? (f < 0.5 ? 0 : 1) : (f < 0.5 ? 1 : 0);
+  const d = `M${cx},${cy - r} A${r},${r} 0 0,${outerSweep} ${cx},${cy + r} A${rx},${r} 0 0,${innerSweep} ${cx},${cy - r} Z`;
+  return (
+    <svg width={size} height={size} viewBox="0 0 100 100" style={{ display: "inline-block", verticalAlign: "middle" }}>
+      <circle cx={cx} cy={cy} r={r} fill={C.bg} stroke={C.line} strokeWidth="1" />
+      <path d={d} fill={C.ivory} />
+    </svg>
+  );
+};
 const Panel = ({ children, style }) => (
   <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6, padding: 12, ...style }}>{children}</div>
 );
@@ -589,8 +647,14 @@ export default function BoneAndGlass() {
     // 通常は2個。馴染みの地(この採集地への依頼が8回目以降)は35%で3個目が付く(表示・通知なし)
     const nth = (g.siteCount[site.id] || 0) + 1;
     const amount = 2 + (nth >= 8 && Math.random() < 0.35 ? 1 : 0);
+    // 満月の晩の採集は特定素材の抽選重みを2倍(海月・蛾・夜光苔・梟・蝙蝠。表示・通知なし)
+    let table = site.table;
+    if (moonPhase(g.day) === 4 && MOON_BOOST[site.id]) {
+      const boost = MOON_BOOST[site.id];
+      table = site.table.map(([m, w]) => [m, boost.includes(m) ? w * 2 : w]);
+    }
     const got = {};
-    for (let i = 0; i < amount; i++) { const m = weightedPick(site.table); got[m] = (got[m] || 0) + 1; }
+    for (let i = 0; i < amount; i++) { const m = weightedPick(table); got[m] = (got[m] || 0) + 1; }
     const inv = { ...g.inv };
     Object.entries(got).forEach(([k, v]) => (inv[k] = (inv[k] || 0) + v));
     const siteCount = { ...g.siteCount, [site.id]: nth };
@@ -710,6 +774,7 @@ export default function BoneAndGlass() {
       gakuseiGraduated: res.gakuseiGraduated, swampUnlocked: res.swampUnlocked,
       camphor: res.camphor, mushiFirstDone: res.mushiFirstDone,
       mushiFirstNight: res.mushiFirstNight, mushiMorning: res.mushiMorning,
+      mushiSold: res.mushiSold, anaAlias: res.anaAlias,
     });
     setNightView({ idx: 0, collapsed: false });
   };
@@ -733,8 +798,10 @@ export default function BoneAndGlass() {
     } else if (choice === "high") {
       // ふっかけ成功率: 高額品ほど通りにくく、信頼が良好だと通りやすい(上限0.85)
       const trust = g.trust || 0;
+      // 新月の晩のみ、ふっかけ成功率+15%(隠しパラメータ。表示しない)
+      const newMoonBonus = moonPhase(g.day) === 0 ? 0.15 : 0;
       const highChance = Math.min(0.85,
-        Math.max(0.35, Math.min(0.70, 0.75 - base / 2000)) + Math.max(0, trust) * 0.04);
+        Math.max(0.35, Math.min(0.70, 0.75 - base / 2000)) + Math.max(0, trust) * 0.04 + newMoonBonus);
       if (Math.random() < highChance) {
         const st = removeItem(g);
         setG({ ...st, gold: st.gold + high, rep: st.rep + 2, nightEarn: st.nightEarn + high, totalEarn: st.totalEarn + high, totalSold: st.totalSold + 1,
@@ -795,7 +862,7 @@ export default function BoneAndGlass() {
         {fileImgs && fileImgs.logo
           ? <img src={fileImgs.logo} alt="骨と硝子の店" style={{ width: "80%", maxWidth: 270, height: "auto", display: "block", margin: "7px 0 6px" }} />
           : <h1 style={{ fontSize: 34, fontWeight: 400, letterSpacing: "0.25em", margin: "0 0 6px" }}>骨と硝子の店</h1>}
-        <div style={{ width: 180, height: 1, background: C.brass, margin: "14px 0 18px" }} />
+        <div style={{ width: 180, height: 0.5, background: C.brass, margin: "14px 0 18px" }} />
         <p style={{ color: "#b3a586", fontSize: 13, textAlign: "center", lineHeight: 1.9, maxWidth: 340, margin: "0 0 28px" }}>
           亡骸と鉱石を仕入れ、標本に仕立て、<br />硝子の棚に並べて売る。
         </p>
@@ -820,14 +887,16 @@ export default function BoneAndGlass() {
   const daysToRent = (RENT_INTERVAL - (g.day % RENT_INTERVAL)) % RENT_INTERVAL;
   const aliasCat = g.alias;
 
-  // 夜のカード送り用: 客の来店(カード対象)とそれ以外(家賃・通り名・イベント行など、サマリ行き)
-  const isCardEntry = (l) => l.cid && (l.t === "sale" || l.t === "misc");
+  // 夜のカード送り用: 客の来店(カード対象)とそれ以外(通り名・イベント行など、サマリ行き)
+  // 大家の家賃回収(t:"rent"+cid)も客と同じカードに昇格。見習い日当(cidなし)はサマリのまま
+  const isCardEntry = (l) => l.cid && (l.t === "sale" || l.t === "misc" || l.t === "rent");
   const nightCust = g.nightLog.filter(isCardEntry);
   const nightSys = g.nightLog.filter((l) => !isCardEntry(l));
   const nightInCards = g.phase === "night" && !nightView.collapsed && nightView.idx < nightCust.length;
   // カード送り中の売上累計(表示済みカードまで)
   const nightEarnSoFar = nightCust.slice(0, nightView.idx + 1)
     .filter((l) => l.t === "sale").reduce((s, l) => s + (l.price || 0), 0);
+  const moonOpenLine = MOON_OPEN[moonPhase(g.day)]; // 満月/新月の晩の開店一言(他の相は空)
   const nightAdvance = () => setNightView((v) => ({ ...v, idx: v.idx + 1 }));
   const nightCollapse = () => setNightView((v) => ({ ...v, collapsed: true }));
   // 現行の一覧ログ形式(まとめ表示・サマリで使う)
@@ -860,10 +929,12 @@ export default function BoneAndGlass() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", borderBottom: `1px solid ${C.line}`, paddingBottom: 8, marginBottom: 10 }}>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 10, letterSpacing: "0.3em", color: C.dim, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>骨と硝子の店</div>
-            {aliasCat && (
-              <div style={{ fontSize: 10, letterSpacing: "0.15em", color: C.brass, whiteSpace: "nowrap" }}>人呼んで『{ALIASES[aliasCat].name}』</div>
+            {(aliasCat || g.anaAlias) && (
+              <div style={{ fontSize: 10, letterSpacing: "0.15em", color: C.brass, whiteSpace: "nowrap" }}>
+                人呼んで{aliasCat && `『${ALIASES[aliasCat].name}』`}{g.anaAlias && `『${ANA_ALIAS.name}』`}
+              </div>
             )}
-            <div style={{ fontSize: 16, letterSpacing: "0.1em", whiteSpace: "nowrap" }}>{g.day}日目 <span style={{ color: C.brass }}>{PHASE_LABEL[g.phase]}</span></div>
+            <div style={{ fontSize: 16, letterSpacing: "0.1em", whiteSpace: "nowrap" }}>{g.day}日目 <MoonIcon day={g.day} fileImgs={fileImgs} size={14} /> <span style={{ color: C.brass }}>{PHASE_LABEL[g.phase]}</span></div>
           </div>
           <div style={{ textAlign: "right", fontSize: 13 }}>
             <div style={{ color: g.gold < 0 ? C.red : C.brass, fontVariantNumeric: "tabular-nums" }}>{g.gold} G{g.gold < 0 ? "(借金)" : ""}</div>
@@ -885,7 +956,7 @@ export default function BoneAndGlass() {
             <Panel style={{ background: "transparent" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
                 <div style={{ fontSize: 11, color: C.dim }}>倉庫</div>
-                {wormCount > 0 && (
+                {wormCount > 0 && g.mushiFirstDone && (
                   <button onClick={() => setBurnConfirm(true)}
                     style={{ fontFamily: "inherit", cursor: "pointer", fontSize: 11, color: C.red, background: "none", border: `1px solid ${C.red}`, borderRadius: 3, padding: "2px 8px" }}>
                     虫食いを焚き付けに
@@ -1146,10 +1217,14 @@ export default function BoneAndGlass() {
         )}
 
         {/* ===== 夜 ===== */}
+        {/* 満月・新月の晩の開店一言(夜画面の冒頭・地の文) */}
+        {g.phase === "night" && moonOpenLine && (
+          <div style={{ fontSize: 12, color: C.dim, lineHeight: 1.8, marginBottom: 10, textAlign: "center", letterSpacing: "0.05em" }}>{moonOpenLine}</div>
+        )}
         {g.phase === "night" && nightInCards && (() => {
           const l = nightCust[nightView.idx];
           const cust = CUSTOMERS.find((c) => c.id === l.cid);
-          const custName = cust ? cust.name : (l.cid === "mushiya" ? MUSHIYA.name : "");
+          const custName = cust ? cust.name : (l.cid === "mushiya" ? MUSHIYA.name : l.cid === "ooya" ? OOYA.name : "");
           return (
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
@@ -1164,12 +1239,13 @@ export default function BoneAndGlass() {
                   <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
                     <FramedPortrait cid={l.cid} imgs={imgs} fileImgs={fileImgs} />
                     <div style={{ flex: 1, minWidth: 0 }}>
+                      {/* カード表示ではセリフの「」を外し、地の文(薄色)と文字色で区別する */}
                       <div style={{ fontSize: 15, letterSpacing: "0.1em", marginBottom: 6 }}>{custName}</div>
                       <div style={{ fontSize: 13, lineHeight: 1.9, color: l.line ? C.ivory : C.dim }}>
-                        {l.line ? `「${l.line}」` : l.text}
+                        {l.line ? l.line : (l.narr || l.text)}
                       </div>
-                      {l.line2 && <div style={{ fontSize: 13, lineHeight: 1.9, color: C.ivory, marginTop: 6 }}>「{l.line2}」</div>}
-                      {l.line3 && <div style={{ fontSize: 13, lineHeight: 1.9, color: C.ivory, marginTop: 6 }}>「{l.line3}」</div>}
+                      {l.line2 && <div style={{ fontSize: 13, lineHeight: 1.9, color: C.ivory, marginTop: 6 }}>{l.line2}</div>}
+                      {l.line3 && <div style={{ fontSize: 13, lineHeight: 1.9, color: C.ivory, marginTop: 6 }}>{l.line3}</div>}
                       {l.sub && <div style={{ fontSize: 12, lineHeight: 1.8, color: C.dim, marginTop: 8 }}>{l.sub}</div>}
                     </div>
                   </div>
@@ -1178,6 +1254,12 @@ export default function BoneAndGlass() {
                       <SpecIcon id={l.itemId} fileImgs={fileImgs} size={26} emojiSize={16} />
                       <span>{specOf(l.itemId).name}</span>
                       <span style={{ marginLeft: "auto", color: l.grad ? "#e0b96a" : C.brass, fontVariantNumeric: "tabular-nums" }}>{l.price} G</span>
+                    </div>
+                  )}
+                  {l.t === "rent" && l.payLabel && (
+                    <div style={{ marginTop: 10, borderTop: `1px solid ${C.line}`, paddingTop: 8, display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+                      <span style={{ color: C.dim }}>支払い</span>
+                      <span style={{ marginLeft: "auto", color: C.red, fontVariantNumeric: "tabular-nums" }}>{l.payLabel}</span>
                     </div>
                   )}
                 </Panel>
@@ -1333,6 +1415,13 @@ export default function BoneAndGlass() {
                       </div>
                     );
                   })}
+                  {/* 隠し枠「穴物堂」: 獲得後のみ表示(未獲得時は一切出さない) */}
+                  {g.anaAlias && (
+                    <div style={{ border: `1px solid ${C.brass}`, borderRadius: 5, padding: 8 }}>
+                      <div style={{ fontSize: 13, color: C.brass }}>『{ANA_ALIAS.name}』</div>
+                      <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>{ANA_ALIAS.desc}</div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

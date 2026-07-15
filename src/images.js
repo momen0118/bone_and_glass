@@ -27,7 +27,11 @@ const urlFor = (base) => FILES[`${base}.png`] || FILES[`${base}.jpg`] || null;
 // materials(素材アイコン・ドット絵想定)と sites(採集地カード背景)は将来用の読み込み口。
 // 画像が置かれた日から自動で反映される(無ければ絵文字・現行表示のまま)
 export async function loadFileImages() {
-  const result = { shop: urlFor("/img/shop"), logo: urlFor("/img/logo"), portraits: {}, specimens: {}, materials: {}, sites: {} };
+  const result = { shop: urlFor("/img/shop"), logo: urlFor("/img/logo"), portraits: {}, specimens: {}, materials: {}, sites: {}, moon: {} };
+  for (let i = 0; i < 7; i++) {
+    const u = urlFor(`/img/moon/${i}`); // 月相ドットの差し替え口(0新月〜4満月〜6有明)。未作成でも可
+    if (u) result.moon[i] = u;
+  }
   for (const id of PORTRAIT_IDS) {
     const u = urlFor(`/img/portraits/${id}`);
     if (u) result.portraits[id] = u;

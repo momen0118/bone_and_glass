@@ -223,6 +223,31 @@ function simulateNight(g) {
 
   // 匣の庭(銘板)発動中は学生の予算を+30%(隠し効果・UIには一切出さない)
   const gardenActive = sets.some((s) => s.id === "set_garden");
+  // 学生の就職イベント: 条件を満たす夜は「来客列の先頭」で発生させる。
+  // 開店一番、金持ちに棚を食い荒らされる前に、棚で最も表示価格の高い品を予算無視で買っていく。
+  // (累計販売が閾値に達し、棚に商品が1点以上ある夜。棚が空の夜は持ち越し)
+  {
+    const gslots = shelf.map((id, i) => ({ id, i })).filter((s) => s.id && !isWorm(s.id) && s.i < g.shelfSize);
+    if (!graduated && (custBought.gakusei || 0) >= GAKUSEI_GRAD.threshold && gslots.length) {
+      graduated = true;
+      graduatedTonight = true;
+      let target = gslots[0];
+      for (const s of gslots) if (priceAt(s.i) > priceAt(target.i)) target = s;
+      const price = priceAt(target.i);
+      const sp = SPECIMENS[target.id];
+      shelf[target.i] = null;
+      gold += price; sold++;
+      soldByCat[sp.cat] = (soldByCat[sp.cat] || 0) + 1;
+      rep += 1 + (sp.tags.includes("rare") ? 1 : 0) + mode.repBonus;
+      custBought.gakusei = 0; // 後輩に代替わり(この購入は数に残さない)
+      log.push({
+        t: "sale", cid: "gakusei", big: true, grad: true,
+        line: GAKUSEI_GRAD.line, line2: GAKUSEI_GRAD.line2, sub: GAKUSEI_GRAD.sub,
+        itemId: target.id, price,
+        text: `学生「${GAKUSEI_GRAD.line}」「${GAKUSEI_GRAD.line2}」— ${sp.icon} ${sp.name}を ${price}G で購入。`,
+      });
+    }
+  }
   // 同一客層の3連続を避けるため、直近に来た客層を控える
   const recent = [];
   for (let v = 0; v < visitors; v++) {
@@ -238,28 +263,6 @@ function simulateNight(g) {
     const bought = custBought[c.id] || 0;
     // 通常客は虫食い品を一切見ない(棚の虫食いは対象外)
     const slots = shelf.map((id, i) => ({ id, i })).filter((s) => s.id && !isWorm(s.id) && s.i < g.shelfSize);
-    // 学生の就職イベント: 累計販売が閾値に達した後、棚に商品が1点以上ある夜の来店を置き換える。
-    // 棚で最も表示価格の高い品を予算無視で購入する(一度きり。棚が空の夜は持ち越し)
-    if (c.id === "gakusei" && !graduated && (custBought.gakusei || 0) >= GAKUSEI_GRAD.threshold && slots.length) {
-      graduated = true;
-      graduatedTonight = true;
-      let target = slots[0];
-      for (const s of slots) if (priceAt(s.i) > priceAt(target.i)) target = s;
-      const price = priceAt(target.i);
-      const sp = SPECIMENS[target.id];
-      shelf[target.i] = null;
-      gold += price; sold++;
-      soldByCat[sp.cat] = (soldByCat[sp.cat] || 0) + 1;
-      rep += 1 + (sp.tags.includes("rare") ? 1 : 0) + mode.repBonus;
-      custBought.gakusei = 0; // 後輩に代替わり(この購入は数に残さない)
-      log.push({
-        t: "sale", cid: "gakusei", big: true, grad: true,
-        line: GAKUSEI_GRAD.line, line2: GAKUSEI_GRAD.line2, sub: GAKUSEI_GRAD.sub,
-        itemId: target.id, price,
-        text: `学生「${GAKUSEI_GRAD.line}」「${GAKUSEI_GRAD.line2}」— ${sp.icon} ${sp.name}を ${price}G で購入。`,
-      });
-      continue;
-    }
     if (!slots.length) { log.push({ t: "misc", cid: c.id, text: `${c.name}が覗いたが、棚は空だった。`, line: null }); continue; }
 
     // 購入候補 = 表示価格が下限(客ごと)以上かつ予算以下。候補ゼロは従来のpass扱い
@@ -329,8 +332,9 @@ function simulateNight(g) {
       mushiyaVisit = true;
       mushiFirstDone = true;
       mushiFirstNight = false;
-    } else if (dryCount() >= 3) {
-      // 1夜目: 倉庫に乾燥系3点以上 → 確定で1品発生
+    } else if (dryCount() >= 3 || (g.day >= 10 && dryCount() >= 1)) {
+      // 1夜目: 倉庫に乾燥系3点以上、または10日目以降で乾燥系1点以上 → 確定で1品発生
+      // (回転の良い店で乾燥系が溜まらず、いつまでも初回イベントが起きない問題への逃がし弁)
       const name = spawnWorm();
       if (name) { mushiMorning = name; mushiFirstNight = true; }
     }
@@ -558,21 +562,20 @@ const Portrait = ({ cid, imgs, fileImgs, size = 34 }) => {
     </span>
   );
 };
-// 夜のカード用の大きな肖像(額縁風)。画像が無ければ絵文字を大きく
-const FramedPortrait = ({ cid, imgs, fileImgs }) => {
+// 夜のカード用の大きな肖像。夜ログの小さいPortraitと同方式(円形切り抜き+真鍮枠)のスケールアップ版。
+// 画像が無ければ絵文字を大きく。画廊プレビュー・蒐集家・大家・蟲屋のカードもこれで統一する。
+const FramedPortrait = ({ cid, imgs, fileImgs, width = "40%" }) => {
   const fileUrl = fileImgs && fileImgs.portraits && fileImgs.portraits[cid];
   const meta = imgs && imgs[cid];
   const src = fileUrl || (meta && meta.data);
   const fb = portraitFallback(cid);
   const zoom = fileUrl ? FILE_ZOOM.portrait : (meta && meta.zoom) || 1.15;
   return (
-    <div style={{ width: "40%", flexShrink: 0 }}>
-      <div style={{ border: `3px double ${C.brass}`, borderRadius: 4, padding: 3, background: "#0e0b08", boxShadow: "0 2px 10px rgba(0,0,0,0.45)" }}>
-        <div style={{ aspectRatio: "1 / 1", overflow: "hidden", borderRadius: 2, background: "#171310", display: "flex", alignItems: "center", justifyContent: "center" }}>
-          {src
-            ? <img src={src} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", transform: `scale(${zoom})`, filter: "sepia(0.3) contrast(1.05) brightness(0.98)" }} />
-            : <span style={{ fontSize: 52 }}>{fb}</span>}
-        </div>
+    <div style={{ width, flexShrink: 0 }}>
+      <div style={{ aspectRatio: "1 / 1", borderRadius: "50%", overflow: "hidden", border: `2px solid ${C.brass}`, background: "#171310", boxShadow: "0 2px 10px rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        {src
+          ? <img src={src} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", transform: `scale(${zoom})`, filter: "sepia(0.3) contrast(1.05) brightness(0.98)" }} />
+          : <span style={{ fontSize: 52 }}>{fb}</span>}
       </div>
     </div>
   );
@@ -683,10 +686,11 @@ export default function BoneAndGlass() {
     setG({ ...g, gold: g.gold - site.cost, inv, siteCount, gatherCount, caveUnlocked });
     flash(justUnlocked ? CAVE_UNLOCK.text : "入手: " + Object.entries(got).map(([k, v]) => `${itemIcon(k)}${itemName(k)}×${v}`).join("、"));
   };
-  const buySupply = (s) => {
-    if (g.gold < s.cost) return flash("お金が足りない");
-    const inv = { ...g.inv }; inv[s.id] = (inv[s.id] || 0) + 1;
-    setG({ ...g, gold: g.gold - s.cost, inv });
+  const buySupply = (s, qty = 1) => {
+    const total = s.cost * qty;
+    if (g.gold < total) return flash("お金が足りない");
+    const inv = { ...g.inv }; inv[s.id] = (inv[s.id] || 0) + qty;
+    setG({ ...g, gold: g.gold - total, inv });
   };
   // 樟脳を買う(5晩分。所持は1個まで=残晩数があるうちは買えない)
   const buyCamphor = () => {
@@ -1089,7 +1093,7 @@ export default function BoneAndGlass() {
   // 二次加工マーク: '⚒'=発見済みの次加工あり '?'=未知の次加工あり
   const nextMark = (specId) => {
     const rid = SECONDARY[specId]; if (!rid) return null;
-    return g.known.includes(rid) ? "⚒" : "?";
+    return g.known.includes(rid) ? null : "?"; // 未発見の二次加工にのみ「?」。⚒(発見済み)マークは廃止
   };
 
   return (
@@ -1149,57 +1153,64 @@ export default function BoneAndGlass() {
               s.id === "shitsugen" ? g.swampUnlocked : s.id === "doukutsu" ? g.caveUnlocked : true
             ).map((s) => {
               const siteBg = fileImgs && fileImgs.sites && fileImgs.sites[s.id];
-              return (
-                <Panel key={s.id} style={siteBg ? { position: "relative", overflow: "hidden" } : null}>
-                  {siteBg && (
-                    <>
-                      <div style={{ position: "absolute", inset: 0, backgroundImage: `url(${siteBg})`, backgroundSize: "cover", backgroundPosition: "center", transform: `scale(${FILE_ZOOM.site})` }} />
-                      <div style={{ position: "absolute", inset: 0, background: "rgba(20,17,13,0.7)" }} />
-                    </>
-                  )}
-                  <div style={{ position: "relative", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div>
-                      <div style={{ fontSize: 15 }}>{s.name} <span style={{ color: C.brass, fontSize: 13 }}>{s.cost}G</span>
-                        {(g.siteCount[s.id] || 0) >= 7 && <span style={{ fontSize: 10, color: C.dim, marginLeft: 6 }}>馴染みの地</span>}
-                      </div>
-                      <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>{s.desc}</div>
-                      <div style={{ fontSize: 12, marginTop: 4 }}>{s.table.map(([m]) => <MatIcon key={m} id={m} fileImgs={fileImgs} emojiSize={12} style={{ marginRight: 5 }} />)}</div>
-                    </div>
-                    <Btn onClick={() => gather(s)} disabled={g.gold < s.cost}>採集依頼</Btn>
-                  </div>
-                </Panel>
-              );
-            })}
-            <Panel>
-              <div style={{ fontSize: 15, marginBottom: 6 }}>古物市 <span style={{ fontSize: 11, color: C.dim }}>資材の買い付け</span></div>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                {SUPPLY_SHOP.map((s) => (
-                  <Btn key={s.id} onClick={() => buySupply(s)} disabled={g.gold < s.cost} style={{ fontSize: 13 }}>
-                    <MatIcon id={s.id} fileImgs={fileImgs} emojiSize={13} /> {itemName(s.id)} {s.cost}G <span style={{ color: C.dim }}>(所持{g.inv[s.id] || 0})</span>
-                  </Btn>
-                ))}
-              </div>
-              {g.mushiFirstDone && (
-                <div style={{ marginTop: 8, display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: `1px solid ${C.line}`, paddingTop: 8 }}>
-                  <div style={{ fontSize: 13 }}>{CAMPHOR.icon} 樟脳 <span style={{ fontSize: 11, color: C.dim }}>残り{g.camphor}晩</span>
-                    <div style={{ fontSize: 11, color: C.dim, marginTop: 1 }}>{CAMPHOR.desc}</div>
-                  </div>
-                  <Btn onClick={buyCamphor} disabled={g.gold < CAMPHOR.cost || g.camphor > 0}>{CAMPHOR.cost}G</Btn>
-                </div>
-              )}
-            </Panel>
-            {g.rep >= 20 && (
-              <Panel>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              const inner = (
+                <div style={{ position: "relative", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <div>
-                    <div style={{ fontSize: 15 }}>見習い <span style={{ fontSize: 11, color: C.dim }}>日当50G</span></div>
-                    <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>
-                      {g.apprentice ? "見習いは朝から工房にいる(作業+1)" : "雇えば朝から工房に立つ(作業+1)"}
+                    <div style={{ fontSize: 15 }}>{s.name} <span style={{ color: C.brass, fontSize: 13 }}>{s.cost}G</span>
+                      {(g.siteCount[s.id] || 0) >= 7 && <span style={{ fontSize: 10, color: C.dim, marginLeft: 6 }}>馴染みの地</span>}
+                    </div>
+                    <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>{s.desc}</div>
+                    <div style={{ fontSize: 12, marginTop: 4 }}>{s.table.map(([m]) => <MatIcon key={m} id={m} fileImgs={fileImgs} emojiSize={12} style={{ marginRight: 5 }} />)}</div>
+                  </div>
+                  <Btn onClick={() => gather(s)} disabled={g.gold < s.cost}>採集依頼</Btn>
+                </div>
+              );
+              // 背景画像あり: 枠なしの背景帯(暗幕維持)に文字を直接載せる / 画像なし: 従来の枠つき角丸パネル
+              if (siteBg) return (
+                <div key={s.id} style={{ position: "relative", overflow: "hidden", padding: 12 }}>
+                  <div style={{ position: "absolute", inset: 0, backgroundImage: `url(${siteBg})`, backgroundSize: "cover", backgroundPosition: "center", transform: `scale(${FILE_ZOOM.site})` }} />
+                  <div style={{ position: "absolute", inset: 0, background: "rgba(20,17,13,0.7)" }} />
+                  {inner}
+                </div>
+              );
+              return <Panel key={s.id}>{inner}</Panel>;
+            })}
+            {/* 古物市: 枠なし+罫線一本。調度屋と同じ行形式(左に品名・所持数、右に購入ボタン) */}
+            <div style={{ borderTop: `1px solid ${C.line}`, paddingTop: 12 }}>
+              <div style={{ fontSize: 15, marginBottom: 8 }}>古物市 <span style={{ fontSize: 11, color: C.dim }}>資材の買い付け</span></div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {SUPPLY_SHOP.map((s) => (
+                  <div key={s.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                    <div style={{ fontSize: 13, minWidth: 0 }}>
+                      <MatIcon id={s.id} fileImgs={fileImgs} emojiSize={13} /> {itemName(s.id)} <span style={{ fontSize: 11, color: C.dim }}>{s.cost}G · 所持{g.inv[s.id] || 0}</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                      <Btn onClick={() => buySupply(s, 1)} disabled={g.gold < s.cost} style={{ fontSize: 13 }}>+1</Btn>
+                      <Btn onClick={() => buySupply(s, 5)} disabled={g.gold < s.cost * 5} style={{ fontSize: 13 }}>+5</Btn>
                     </div>
                   </div>
-                  <Btn onClick={toggleApprentice}>{g.apprentice ? "休ませる" : "雇う"}</Btn>
+                ))}
+                {g.mushiFirstDone && (
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                    <div style={{ fontSize: 13, minWidth: 0 }}>{CAMPHOR.icon} 樟脳 <span style={{ fontSize: 11, color: C.dim }}>残り{g.camphor}晩</span>
+                      <div style={{ fontSize: 11, color: C.dim, marginTop: 1 }}>{CAMPHOR.desc}</div>
+                    </div>
+                    <Btn onClick={buyCamphor} disabled={g.gold < CAMPHOR.cost || g.camphor > 0} style={{ flexShrink: 0 }}>{CAMPHOR.cost}G</Btn>
+                  </div>
+                )}
+              </div>
+            </div>
+            {/* 見習い: 枠なし+罫線一本 */}
+            {g.rep >= 20 && (
+              <div style={{ borderTop: `1px solid ${C.line}`, paddingTop: 12, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                <div>
+                  <div style={{ fontSize: 15 }}>見習い <span style={{ fontSize: 11, color: C.dim }}>日当50G</span></div>
+                  <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>
+                    {g.apprentice ? "見習いは朝から工房にいる(作業+1)" : "雇えば朝から工房に立つ(作業+1)"}
+                  </div>
                 </div>
-              </Panel>
+                <Btn onClick={toggleApprentice} style={{ flexShrink: 0 }}>{g.apprentice ? "休ませる" : "雇う"}</Btn>
+              </div>
             )}
           </div>
         )}
@@ -1213,7 +1224,7 @@ export default function BoneAndGlass() {
             </div>
 
             <Panel>
-              <div style={{ fontSize: 11, color: C.dim, marginBottom: 6 }}>作業台に載せる <span style={{ color: "#6f6350" }}>(⚒=仕立て直せる ?=まだ何かになりそう)</span></div>
+              <div style={{ fontSize: 11, color: C.dim, marginBottom: 6 }}>作業台に載せる</div>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", maxHeight: 92, overflowY: "auto", paddingBottom: 2 }}>
                 {[...invEntries.filter(([k]) => !MATERIALS[k].supply), ...specEntries.filter(([k]) => craftables(k).length)].map(([k, v]) => {
                   const mk = SPECIMENS[k] ? nextMark(k) : null;
@@ -1607,7 +1618,7 @@ export default function BoneAndGlass() {
                   </div>
                 ) : (
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: `1px solid ${C.line}`, paddingTop: 8, marginTop: 2 }}>
-                    <div style={{ fontSize: 13 }}>この店の買い取り<div style={{ fontSize: 11, color: C.dim }}>大家から店ごと買い上げる。家賃とはお別れだ</div></div>
+                    <div style={{ fontSize: 13 }}>店の買い取り<div style={{ fontSize: 11, color: C.dim }}>大家から店ごと買い上げる。家賃とはお別れだ</div></div>
                     <Btn onClick={buyShop} disabled={g.gold < SHOP_BUYOUT}>{SHOP_BUYOUT}G</Btn>
                   </div>
                 )}
@@ -1741,14 +1752,7 @@ export default function BoneAndGlass() {
         return (
           <div onClick={advance} style={{ position: "fixed", inset: 0, background: "rgba(10,8,6,0.96)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 28, zIndex: 70, cursor: "pointer" }}>
             <div style={{ width: "58%", maxWidth: 260 }}>
-              <div style={{ border: `3px double ${C.brass}`, borderRadius: 4, padding: 3, background: "#0e0b08", boxShadow: "0 2px 14px rgba(0,0,0,0.6)" }}>
-                <div style={{ aspectRatio: "1 / 1", overflow: "hidden", borderRadius: 2, background: "#171310", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  {(fileImgs && fileImgs.portraits && fileImgs.portraits.ooya) || (imgs.ooya && imgs.ooya.data)
-                    ? <img src={(fileImgs && fileImgs.portraits && fileImgs.portraits.ooya) || imgs.ooya.data} alt=""
-                        style={{ width: "100%", height: "100%", objectFit: "cover", transform: `scale(${fileImgs && fileImgs.portraits && fileImgs.portraits.ooya ? FILE_ZOOM.portrait : (imgs.ooya && imgs.ooya.zoom) || 1.15})`, filter: "sepia(0.3) contrast(1.05) brightness(0.98)" }} />
-                    : <span style={{ fontSize: 72 }}>{OOYA.icon}</span>}
-                </div>
-              </div>
+              <FramedPortrait cid="ooya" imgs={imgs} fileImgs={fileImgs} width="100%" />
             </div>
             <div style={{ marginTop: 26, minHeight: 76, maxWidth: 340, textAlign: "center", fontSize: 14, lineHeight: 2.1, color: step.t === "line" ? C.ivory : C.dim }}>
               {step.t === "line" ? `大家「${step.text}」` : step.text}

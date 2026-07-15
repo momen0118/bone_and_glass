@@ -280,7 +280,7 @@ export const CUSTOMERS = [
 export const GAKUSEI_KOUHAI_LINE = "先輩に教わったんです、この店";
 // 学生の就職イベント(棚に商品が1点以上ある夜に発生。最も高い品を予算無視で購入)
 export const GAKUSEI_GRAD = {
-  threshold: 30, // 学生への累計販売がこの回数に達した後、次の来店で発生
+  threshold: 25, // 学生への累計販売がこの回数に達した後、次の来店で発生
   line: "就職しました。……約束、覚えてますか",
   line2: "初任給です。──一番いいものを、ください",
   sub: "春から研究室に入るらしい。少しいい外套を着ていた。",
@@ -292,7 +292,7 @@ export const SWAMP_UNLOCK = {
 };
 // 洞窟の解禁(森・入り江への採集依頼の累計)
 export const CAVE_UNLOCK = {
-  threshold: 5,
+  threshold: 7,
   text: "採集人「洞窟の下見をしてきた。次からは請けられる。」",
 };
 

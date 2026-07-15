@@ -647,9 +647,10 @@ export default function BoneAndGlass() {
     // 通常は2個。馴染みの地(この採集地への依頼が8回目以降)は35%で3個目が付く(表示・通知なし)
     const nth = (g.siteCount[site.id] || 0) + 1;
     const amount = 2 + (nth >= 8 && Math.random() < 0.35 ? 1 : 0);
-    // 満月の晩の採集は特定素材の抽選重みを2倍(海月・蛾・夜光苔・梟・蝙蝠。表示・通知なし)
+    // 前夜が満月だった朝の採集は特定素材の抽選重みを2倍(海月・蛾・夜光苔・梟・蝙蝠。表示・通知なし)
+    // 満月は2晩あるため、その各翌朝=計2回の朝が対象になる
     let table = site.table;
-    if (moonPhase(g.day) === 4 && MOON_BOOST[site.id]) {
+    if (moonPhase(g.day - 1) === 4 && MOON_BOOST[site.id]) {
       const boost = MOON_BOOST[site.id];
       table = site.table.map(([m, w]) => [m, boost.includes(m) ? w * 2 : w]);
     }

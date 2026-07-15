@@ -1098,7 +1098,7 @@ export default function BoneAndGlass() {
 
   return (
     <div style={{ minHeight: "100vh", background: C.bg, color: C.ivory, fontFamily: "Georgia, 'Yu Mincho', serif" }}>
-      <div style={{ maxWidth: 560, margin: "0 auto", paddingTop: 12, paddingLeft: 12, paddingRight: 12, paddingBottom: "calc(96px + env(safe-area-inset-bottom, 0px))" }}>
+      <div style={{ maxWidth: 560, margin: "0 auto", paddingTop: "calc(12px + env(safe-area-inset-top, 0px))", paddingLeft: 12, paddingRight: 12, paddingBottom: "calc(96px + env(safe-area-inset-bottom, 0px))" }}>
 
         {/* ヘッダー(左右ブロックの下端を揃える。所持金をスコアとして主役に) */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 10, borderBottom: `1px solid ${C.line}`, paddingBottom: 8, marginBottom: 10 }}>

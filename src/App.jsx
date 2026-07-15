@@ -221,8 +221,18 @@ function simulateNight(g) {
     return round5(p);
   };
 
+  // 匣の庭(銘板)発動中は学生の予算を+30%(隠し効果・UIには一切出さない)
+  const gardenActive = sets.some((s) => s.id === "set_garden");
+  // 同一客層の3連続を避けるため、直近に来た客層を控える
+  const recent = [];
   for (let v = 0; v < visitors; v++) {
-    const c = weightedPick(pool);
+    let c = weightedPick(pool);
+    // 直前2組と同一客層なら1回だけ再抽選(他客層がプールにある場合のみ。序盤の学生オンリーは対象外)
+    if (recent.length >= 2 && recent[recent.length - 1] === c.id && recent[recent.length - 2] === c.id
+        && pool.some(([p]) => p.id !== c.id)) {
+      c = weightedPick(pool);
+    }
+    recent.push(c.id);
     // 就職イベントの起きた夜、以降の学生の抽選は無効にする(再抽選しない=その枠は空振り)
     if (c.id === "gakusei" && graduatedTonight) continue;
     const bought = custBought[c.id] || 0;
@@ -253,7 +263,9 @@ function simulateNight(g) {
     if (!slots.length) { log.push({ t: "misc", cid: c.id, text: `${c.name}が覗いたが、棚は空だった。`, line: null }); continue; }
 
     // 購入候補 = 表示価格が下限(客ごと)以上かつ予算以下。候補ゼロは従来のpass扱い
-    const afford = slots.filter((s) => priceAt(s.i) >= (c.floor || 0) && priceAt(s.i) <= c.budget);
+    // 匣の庭が出ている夜は学生の予算だけ+30%(隠し効果)
+    const budget = c.id === "gakusei" && gardenActive ? Math.round(c.budget * 1.3) : c.budget;
+    const afford = slots.filter((s) => priceAt(s.i) >= (c.floor || 0) && priceAt(s.i) <= budget);
     if (!afford.length) {
       const line = custLine(c, bought, "poor");
       log.push({ t: "misc", cid: c.id, text: `${c.name}「${line}」`, line });
@@ -904,13 +916,15 @@ export default function BoneAndGlass() {
   const custCards = nightCust.filter((l) => l.t !== "rent"); // 通常客+蟲屋
   const collectorNight = !!g.offer || !!g.offerResult;
   const monthNight = g.day % 30 === 0;
-  const hasClosing = !!rentCard || collectorNight;
   const nightSteps = [];
   if (moonOpenLine) nightSteps.push({ t: "moon" });
   custCards.forEach((l) => nightSteps.push({ t: "cust", l }));
-  if (hasClosing) nightSteps.push({ t: "divider" });
-  if (rentCard) nightSteps.push({ t: "rent", l: rentCard });
+  // 閉店後の格分け: 全面の一拍「——閉店後。」は蒐集家が来る夜だけ(非日常への期待に応える)。
+  // 大家のみの夜(毎週の家賃回収)は一拍を出さず、大家カードの左上に小さく「閉店後」タグを載せるだけ。
+  // 両方来る夜は 全面一拍 → 蒐集家 → 大家(タグ付き) の順。
+  if (collectorNight) nightSteps.push({ t: "divider" });
   if (collectorNight) nightSteps.push({ t: "collector" });
+  if (rentCard) nightSteps.push({ t: "rent", l: rentCard });
   if (monthNight) nightSteps.push({ t: "month" });
   const nightInSteps = g.phase === "night" && !nightView.collapsed && nightView.idx < nightSteps.length;
   const curStep = nightSteps[nightView.idx];
@@ -947,25 +961,36 @@ export default function BoneAndGlass() {
   const nightCardPanel = (l, revealSub = 99) => {
     const cust = CUSTOMERS.find((c) => c.id === l.cid);
     const custName = cust ? cust.name : (l.cid === "mushiya" ? MUSHIYA.name : l.cid === "ooya" ? OOYA.name : "");
-    const tap = !!l.line3; // 三段タップ送りカードか
+    const tap = !!l.line3; // 三段タップ送りカード(蟲屋初回)か
     const show2 = revealSub >= 2, show3 = revealSub >= 3;
     const showSaleRow = l.t === "sale" && (tap ? show2 : true);
+    // 入れ替え式(タップ送り)の一言: 現在のサブだけを見せ、前の言葉は画面に溜めない
+    const tapLine = show3 ? l.line3 : show2 ? l.line2 : l.line;
     return (
       <Panel style={{
+        position: "relative",
         border: `1px solid ${l.big ? "#e0b96a" : C.line}`,
         boxShadow: l.big ? "0 0 14px rgba(201,161,94,0.15)" : "none",
         background: l.big && l.grad ? "#282013" : C.panel,
       }}>
+        {l.t === "rent" && (
+          <div style={{ position: "absolute", top: 6, left: 6, zIndex: 1, fontSize: 10, color: C.dim, letterSpacing: "0.06em", background: "rgba(20,17,13,0.85)", padding: "1px 6px", borderRadius: 3 }}>閉店後</div>
+        )}
         <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
           <FramedPortrait cid={l.cid} imgs={imgs} fileImgs={fileImgs} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 15, letterSpacing: "0.1em", marginBottom: 6 }}>{custName}</div>
-            <div style={{ fontSize: 13, lineHeight: 1.9, color: l.line ? C.ivory : C.dim }}>
-              {l.line ? withPeriod(l.line) : (l.narr || l.text)}
-            </div>
-            {l.line2 && show2 && <div style={{ fontSize: 13, lineHeight: 1.9, color: C.ivory, marginTop: 6 }}>{withPeriod(l.line2)}</div>}
-            {l.line3 && show3 && <div style={{ fontSize: 13, lineHeight: 1.9, color: C.ivory, marginTop: 6 }}>{withPeriod(l.line3)}</div>}
-            {l.sub && show2 && <div style={{ fontSize: 12, lineHeight: 1.8, color: C.dim, marginTop: 8 }}>{l.sub}</div>}
+            {tap ? (
+              <div style={{ fontSize: 13, lineHeight: 1.9, color: C.ivory }}>{withPeriod(tapLine)}</div>
+            ) : (
+              <>
+                <div style={{ fontSize: 13, lineHeight: 1.9, color: l.line ? C.ivory : C.dim }}>
+                  {l.line ? withPeriod(l.line) : (l.narr || l.text)}
+                </div>
+                {l.line2 && <div style={{ fontSize: 13, lineHeight: 1.9, color: C.ivory, marginTop: 6 }}>{withPeriod(l.line2)}</div>}
+                {l.sub && <div style={{ fontSize: 12, lineHeight: 1.8, color: C.dim, marginTop: 8 }}>{l.sub}</div>}
+              </>
+            )}
           </div>
         </div>
         {showSaleRow && (
@@ -984,12 +1009,29 @@ export default function BoneAndGlass() {
       </Panel>
     );
   };
-  // 地の文だけの一拍(月の独白・閉店後の区切り)
+  // 地の文だけの一拍(閉店後の区切り)
   const nightBeatPanel = (text) => (
     <div style={{ minHeight: 160, display: "flex", alignItems: "center", justifyContent: "center", padding: "24px 16px" }}>
       <div style={{ fontSize: 14, color: C.dim, lineHeight: 2, textAlign: "center", letterSpacing: "0.08em" }}>{text}</div>
     </div>
   );
+  // 月の独白の一拍。空の画像(満月=full/新月=new)があれば横長の額装風で見せ、その下に地の文
+  const moonBeatPanel = (text) => {
+    const ph = moonPhase(g.day);
+    const skyUrl = fileImgs && fileImgs.sky && (ph === 4 ? fileImgs.sky.full : ph === 0 ? fileImgs.sky.new : null);
+    return (
+      <div style={{ minHeight: 160, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "24px 16px", gap: 16 }}>
+        {skyUrl && (
+          <div style={{ width: "100%", maxWidth: 300, border: `1px solid ${C.brass}`, borderRadius: 3, padding: 3, background: "#0e0b08", boxShadow: "0 2px 12px rgba(0,0,0,0.5)" }}>
+            <div style={{ aspectRatio: "16 / 9", overflow: "hidden", borderRadius: 2 }}>
+              <img src={skyUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+            </div>
+          </div>
+        )}
+        <div style={{ fontSize: 14, color: C.dim, lineHeight: 2, textAlign: "center", letterSpacing: "0.08em" }}>{text}</div>
+      </div>
+    );
+  };
   // 蒐集家の交渉パネル(未解決なら交渉、解決後は結果)
   const collectorPanel = () => {
     if (g.offer) {
@@ -1109,7 +1151,7 @@ export default function BoneAndGlass() {
                 <Panel key={s.id} style={siteBg ? { position: "relative", overflow: "hidden" } : null}>
                   {siteBg && (
                     <>
-                      <div style={{ position: "absolute", inset: 0, backgroundImage: `url(${siteBg})`, backgroundSize: "cover", backgroundPosition: "center" }} />
+                      <div style={{ position: "absolute", inset: 0, backgroundImage: `url(${siteBg})`, backgroundSize: "cover", backgroundPosition: "center", transform: `scale(${FILE_ZOOM.site})` }} />
                       <div style={{ position: "absolute", inset: 0, background: "rgba(20,17,13,0.7)" }} />
                     </>
                   )}
@@ -1150,7 +1192,7 @@ export default function BoneAndGlass() {
                   <div>
                     <div style={{ fontSize: 15 }}>見習い <span style={{ fontSize: 11, color: C.dim }}>日当50G</span></div>
                     <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>
-                      {g.apprentice ? "見習いは朝から工房にいる(作業+1)" : "見習いには暇を出している"}
+                      {g.apprentice ? "見習いは朝から工房にいる(作業+1)" : "雇えば朝から工房に立つ(作業+1)"}
                     </div>
                   </div>
                   <Btn onClick={toggleApprentice}>{g.apprentice ? "休ませる" : "雇う"}</Btn>
@@ -1364,7 +1406,7 @@ export default function BoneAndGlass() {
               ) : (
                 <>
                   <div onClick={nightAdvance} style={{ cursor: "pointer" }}>
-                    {s.t === "moon" ? <Panel>{nightBeatPanel(moonOpenLine)}</Panel>
+                    {s.t === "moon" ? <Panel>{moonBeatPanel(moonOpenLine)}</Panel>
                       : s.t === "divider" ? <Panel>{nightBeatPanel("——閉店後。")}</Panel>
                       : s.t === "month" ? monthPanel()
                       : nightCardPanel(s.l, s.l && s.l.line3 ? nightView.sub : 99)}

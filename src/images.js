@@ -13,7 +13,8 @@ export const PORTRAIT_IDS = ["gakusei", "gakusha", "koujika", "kifujin", "collec
 // 肖像は横長(左右に壁紙、中央に楕円の額)なので、円形切り抜きに楕円の内側が収まるよう拡大する
 // shop=1.1 はタイトル背景の拡大トリム(店内観の外周の紙フチを画面外へ出す)
 // site=1.1 は採集地カード背景の拡大トリム(背景画像の外周の紙フチをカード外へ出す)
-export const FILE_ZOOM = { portrait: 1.7, shop: 1.1, site: 1.1 };
+// sky=1.35 は月独白の空画像の拡大トリム(外周の白フチ・黒台紙を金枠の外へ出し、絵柄だけを収める)
+export const FILE_ZOOM = { portrait: 1.7, shop: 1.1, site: 1.1, sky: 1.35 };
 
 // 標本画像の外周トリム倍率: 生成画像の白フチ・右下の署名を表示時に切り落とす(元ファイルは加工しない)
 export const SPEC_TRIM = 1.15;

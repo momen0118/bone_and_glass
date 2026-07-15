@@ -1024,7 +1024,8 @@ export default function BoneAndGlass() {
         {skyUrl && (
           <div style={{ width: "100%", maxWidth: 300, border: `1px solid ${C.brass}`, borderRadius: 3, padding: 3, background: "#0e0b08", boxShadow: "0 2px 12px rgba(0,0,0,0.5)" }}>
             <div style={{ aspectRatio: "16 / 9", overflow: "hidden", borderRadius: 2 }}>
-              <img src={skyUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+              {/* 絵柄だけを金枠内に。外周の白フチ・黒台紙は FILE_ZOOM.sky で拡大トリムして隠す */}
+              <img src={skyUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", transform: `scale(${FILE_ZOOM.sky})` }} />
             </div>
           </div>
         )}

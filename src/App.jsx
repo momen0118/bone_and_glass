@@ -14,7 +14,7 @@ import {
   CUSTOMERS, COLLECTOR, OOYA, SHOP_BUYOUT, SETS, ALIASES, PRICE_MODES,
   GAKUSEI_KOUHAI_LINE, GAKUSEI_GRAD, SWAMP_UNLOCK, CAVE_UNLOCK, SPEC_LORE,
   WORM, isWorm, wormId, baseId, WORM_CATS, specOf, CAMPHOR, mushiDiscover, MUSHIYA,
-  moonPhase, MOON_OPEN, MOON_BOOST,
+  moonPhase, MOON_OPEN, MOON_BOOST, ANA_ALIAS,
   RENT, RENT_INTERVAL, MAX_AP,
 } from "./data.js";
 import { storage } from "./storage.js";
@@ -62,6 +62,7 @@ function newGame() {
     mushiFirstDone: false,  // 初回虫食いイベント消化=樟脳解禁
     mushiFirstNight: false, // 初回イベント: 虫湧き済みで蟲屋の来店待ち
     mushiMorning: null,     // 翌朝に見せる虫食い発見文
+    mushiSold: 0, anaAlias: false, // 蟲屋への累計売却数と隠し通り名「穴物堂」
   };
 }
 const clampTrust = (t) => Math.max(-6, Math.min(6, t));
@@ -98,6 +99,8 @@ function migrate(loaded) {
   g.mushiFirstDone = !!loaded.mushiFirstDone;
   g.mushiFirstNight = !!loaded.mushiFirstNight;
   g.mushiMorning = loaded.mushiMorning || null;
+  g.mushiSold = loaded.mushiSold || 0; // 旧セーブは0開始
+  g.anaAlias = !!loaded.anaAlias;
   return g;
 }
 
@@ -332,12 +335,16 @@ function simulateNight(g) {
   }
 
   // 蟲屋の来店処理(来客上限とは別枠)
+  let mushiSold = g.mushiSold || 0;
+  let anaAlias = g.anaAlias;
   if (mushiyaVisit) {
     const wormSlots = shelf.map((id, i) => ({ id, i })).filter((s) => s.id && isWorm(s.id) && s.i < g.shelfSize);
     const buyWorm = () => {
       const t = pick(wormSlots);
-      const price = round5(basePrice(g, t.id) * 0.7); // 基準価(50%)の70%固定・評判/カウント不変
+      // 蟲屋の買値: 基準価(50%)の70%固定。穴物堂の獲得後は75%に上がる(評判/販売カウント不変)
+      const price = round5(basePrice(g, t.id) * (anaAlias ? 0.75 : 0.70));
       shelf[t.i] = null; gold += price;
+      mushiSold += 1; // 蟲屋への累計売却数(穴物堂の判定に使う)
       return { id: t.id, price };
     };
     if (firstMushiya) {
@@ -362,6 +369,11 @@ function simulateNight(g) {
     } else {
       log.push({ t: "misc", cid: "mushiya", line: MUSHIYA.empty, text: `蟲屋「${MUSHIYA.empty}」` });
     }
+  }
+  // 隠し通り名「穴物堂」: 蟲屋への累計売却が閾値に達した夜、営業ログ末尾に噂
+  if (!anaAlias && mushiSold >= ANA_ALIAS.threshold) {
+    anaAlias = true;
+    log.push({ t: "alias", text: ANA_ALIAS.noise });
   }
 
   // 湿原の解禁(老学者への累計販売が閾値に達した夜、営業ログ末尾にイベント行)
@@ -419,7 +431,7 @@ function simulateNight(g) {
   }
   return { log, gold, rep, sold, rentLog, rentPaid, wageText, shelf, spec, soldByCat, custBought, offer,
     gakuseiGraduated: graduated, swampUnlocked,
-    camphor, mushiFirstDone, mushiFirstNight, mushiMorning };
+    camphor, mushiFirstDone, mushiFirstNight, mushiMorning, mushiSold, anaAlias };
 }
 
 // ---------- 画像 ----------
@@ -762,6 +774,7 @@ export default function BoneAndGlass() {
       gakuseiGraduated: res.gakuseiGraduated, swampUnlocked: res.swampUnlocked,
       camphor: res.camphor, mushiFirstDone: res.mushiFirstDone,
       mushiFirstNight: res.mushiFirstNight, mushiMorning: res.mushiMorning,
+      mushiSold: res.mushiSold, anaAlias: res.anaAlias,
     });
     setNightView({ idx: 0, collapsed: false });
   };
@@ -916,8 +929,10 @@ export default function BoneAndGlass() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", borderBottom: `1px solid ${C.line}`, paddingBottom: 8, marginBottom: 10 }}>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 10, letterSpacing: "0.3em", color: C.dim, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>骨と硝子の店</div>
-            {aliasCat && (
-              <div style={{ fontSize: 10, letterSpacing: "0.15em", color: C.brass, whiteSpace: "nowrap" }}>人呼んで『{ALIASES[aliasCat].name}』</div>
+            {(aliasCat || g.anaAlias) && (
+              <div style={{ fontSize: 10, letterSpacing: "0.15em", color: C.brass, whiteSpace: "nowrap" }}>
+                人呼んで{aliasCat && `『${ALIASES[aliasCat].name}』`}{g.anaAlias && `『${ANA_ALIAS.name}』`}
+              </div>
             )}
             <div style={{ fontSize: 16, letterSpacing: "0.1em", whiteSpace: "nowrap" }}>{g.day}日目 <MoonIcon day={g.day} fileImgs={fileImgs} size={14} /> <span style={{ color: C.brass }}>{PHASE_LABEL[g.phase]}</span></div>
           </div>
@@ -1400,6 +1415,13 @@ export default function BoneAndGlass() {
                       </div>
                     );
                   })}
+                  {/* 隠し枠「穴物堂」: 獲得後のみ表示(未獲得時は一切出さない) */}
+                  {g.anaAlias && (
+                    <div style={{ border: `1px solid ${C.brass}`, borderRadius: 5, padding: 8 }}>
+                      <div style={{ fontSize: 13, color: C.brass }}>『{ANA_ALIAS.name}』</div>
+                      <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>{ANA_ALIAS.desc}</div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

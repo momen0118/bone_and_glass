@@ -1015,21 +1015,22 @@ export default function BoneAndGlass() {
       <div style={{ fontSize: 14, color: C.dim, lineHeight: 2, textAlign: "center", letterSpacing: "0.08em" }}>{text}</div>
     </div>
   );
-  // 月の独白の一拍。空の画像(満月=full/新月=new)があれば横長の額装風で見せ、その下に地の文
+  // 月の独白の一拍。空の画像(満月=full/新月=new)があれば、カード全幅の金枠の上部に
+  // 全幅背景として画像を敷き、下部の帯に独白を置く。画像が無ければ従来どおり地の文のみ。
   const moonBeatPanel = (text) => {
     const ph = moonPhase(g.day);
     const skyUrl = fileImgs && fileImgs.sky && (ph === 4 ? fileImgs.sky.full : ph === 0 ? fileImgs.sky.new : null);
+    if (!skyUrl) return <Panel>{nightBeatPanel(text)}</Panel>;
     return (
-      <div style={{ minHeight: 160, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "24px 16px", gap: 16 }}>
-        {skyUrl && (
-          <div style={{ width: "100%", maxWidth: 300, border: `1px solid ${C.brass}`, borderRadius: 3, padding: 3, background: "#0e0b08", boxShadow: "0 2px 12px rgba(0,0,0,0.5)" }}>
-            <div style={{ aspectRatio: "16 / 9", overflow: "hidden", borderRadius: 2 }}>
-              {/* 絵柄だけを金枠内に。外周の白フチ・黒台紙は FILE_ZOOM.sky で拡大トリムして隠す */}
-              <img src={skyUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", transform: `scale(${FILE_ZOOM.sky})` }} />
-            </div>
-          </div>
-        )}
-        <div style={{ fontSize: 14, color: C.dim, lineHeight: 2, textAlign: "center", letterSpacing: "0.08em" }}>{text}</div>
+      <div style={{ border: `1px solid ${C.brass}`, borderRadius: 6, overflow: "hidden", background: C.panel, boxShadow: "0 0 14px rgba(201,161,94,0.12)" }}>
+        {/* 上部: 空画像を全幅背景で。cover+FILE_ZOOM.sky で外周の白フチ・黒台紙を枠外へ。角丸はカード枠に追従 */}
+        <div style={{ aspectRatio: "16 / 9", overflow: "hidden", background: "#0e0b08" }}>
+          <img src={skyUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", transform: `scale(${FILE_ZOOM.sky})` }} />
+        </div>
+        {/* 下部の帯: 独白の地の文 */}
+        <div style={{ padding: "16px 16px 18px", textAlign: "center" }}>
+          <div style={{ fontSize: 14, color: C.dim, lineHeight: 2, letterSpacing: "0.08em" }}>{text}</div>
+        </div>
       </div>
     );
   };
@@ -1407,7 +1408,7 @@ export default function BoneAndGlass() {
               ) : (
                 <>
                   <div onClick={nightAdvance} style={{ cursor: "pointer" }}>
-                    {s.t === "moon" ? <Panel>{moonBeatPanel(moonOpenLine)}</Panel>
+                    {s.t === "moon" ? moonBeatPanel(moonOpenLine)
                       : s.t === "divider" ? <Panel>{nightBeatPanel("——閉店後。")}</Panel>
                       : s.t === "month" ? monthPanel()
                       : nightCardPanel(s.l, s.l && s.l.line3 ? nightView.sub : 99)}

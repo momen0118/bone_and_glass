@@ -31,6 +31,9 @@ function weightedPick(pairs) {
 }
 const itemName = (id) => (specOf(id) ? specOf(id).name : MATERIALS[id].name);
 const itemIcon = (id) => (specOf(id) ? specOf(id).icon : MATERIALS[id].icon);
+// カード表示のセリフ末に句点を補う(既に文末記号・終助詞「が」等で終わる文はそのまま)
+const SENTENCE_END = "。．！？!?…‥〜~、」』が";
+const withPeriod = (s) => (!s || SENTENCE_END.includes(s[s.length - 1]) ? s : s + "。");
 const round5 = (n) => Math.round(n / 5) * 5;
 
 function newGame() {
@@ -249,7 +252,8 @@ function simulateNight(g) {
     }
     if (!slots.length) { log.push({ t: "misc", cid: c.id, text: `${c.name}が覗いたが、棚は空だった。`, line: null }); continue; }
 
-    const afford = slots.filter((s) => priceAt(s.i) <= c.budget);
+    // 購入候補 = 表示価格が下限(客ごと)以上かつ予算以下。候補ゼロは従来のpass扱い
+    const afford = slots.filter((s) => priceAt(s.i) >= (c.floor || 0) && priceAt(s.i) <= c.budget);
     if (!afford.length) {
       const line = custLine(c, bought, "poor");
       log.push({ t: "misc", cid: c.id, text: `${c.name}「${line}」`, line });
@@ -603,8 +607,8 @@ export default function BoneAndGlass() {
   const [showGallery, setShowGallery] = useState(false);
   const [showDecor, setShowDecor] = useState(false);
   const [toast, setToast] = useState(null);
-  // 夜のカード送り: idx=表示中の客, collapsed=「残りをまとめる」押下済み
-  const [nightView, setNightView] = useState({ idx: 0, collapsed: false });
+  // 夜のカード送り: idx=表示中のステップ, sub=多段カードの表示済み行数, collapsed=「残りをまとめる」押下済み
+  const [nightView, setNightView] = useState({ idx: 0, sub: 1, collapsed: false });
   // 洞窟解禁の朝のイベント行(その朝のあいだだけ表示)
   const [caveEvent, setCaveEvent] = useState(null);
   // 店買い取りの専用演出(null=非表示 / 0〜=表示中のステップ)
@@ -777,7 +781,7 @@ export default function BoneAndGlass() {
       mushiFirstNight: res.mushiFirstNight, mushiMorning: res.mushiMorning,
       mushiSold: res.mushiSold, anaAlias: res.anaAlias,
     });
-    setNightView({ idx: 0, collapsed: false });
+    setNightView({ idx: 0, sub: 1, collapsed: false });
   };
 
   // ---- 蒐集家との交渉 ----
@@ -852,7 +856,7 @@ export default function BoneAndGlass() {
   const shopBg = (fileImgs && fileImgs.shop) || (imgs.shop && imgs.shop.data) || null;
 
   if (screen === "title") return (
-    <div style={{ minHeight: "100vh", background: C.bg, position: "relative", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: "Georgia, 'Yu Mincho', serif", padding: 24, overflow: "hidden" }}>
+    <div style={{ minHeight: "100vh", background: C.bg, position: "relative", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start", paddingTop: "34vh", fontFamily: "Georgia, 'Yu Mincho', serif", paddingLeft: 24, paddingRight: 24, paddingBottom: 24, overflow: "hidden" }}>
       {shopBg && (
         <div style={{ position: "absolute", inset: 0, backgroundImage: `url(${shopBg})`, backgroundSize: "cover", backgroundPosition: "center", opacity: 0.35, filter: "sepia(0.2) brightness(0.8)",
           ...(fileImgs && fileImgs.shop && FILE_ZOOM.shop !== 1 ? { transform: `scale(${FILE_ZOOM.shop})` } : null) }} />
@@ -893,13 +897,37 @@ export default function BoneAndGlass() {
   const isCardEntry = (l) => l.cid && (l.t === "sale" || l.t === "misc" || l.t === "rent");
   const nightCust = g.nightLog.filter(isCardEntry);
   const nightSys = g.nightLog.filter((l) => !isCardEntry(l));
-  const nightInCards = g.phase === "night" && !nightView.collapsed && nightView.idx < nightCust.length;
-  // カード送り中の売上累計(表示済みカードまで)
-  const nightEarnSoFar = nightCust.slice(0, nightView.idx + 1)
-    .filter((l) => l.t === "sale").reduce((s, l) => s + (l.price || 0), 0);
   const moonOpenLine = MOON_OPEN[moonPhase(g.day)]; // 満月/新月の晩の開店一言(他の相は空)
-  const nightAdvance = () => setNightView((v) => ({ ...v, idx: v.idx + 1 }));
+
+  // 夜の流れをステップ列に組む: 月独白 → 客(通常) → 閉店後 → 大家/蒐集家 → 月次記録
+  const rentCard = nightCust.find((l) => l.t === "rent");
+  const custCards = nightCust.filter((l) => l.t !== "rent"); // 通常客+蟲屋
+  const collectorNight = !!g.offer || !!g.offerResult;
+  const monthNight = g.day % 30 === 0;
+  const hasClosing = !!rentCard || collectorNight;
+  const nightSteps = [];
+  if (moonOpenLine) nightSteps.push({ t: "moon" });
+  custCards.forEach((l) => nightSteps.push({ t: "cust", l }));
+  if (hasClosing) nightSteps.push({ t: "divider" });
+  if (rentCard) nightSteps.push({ t: "rent", l: rentCard });
+  if (collectorNight) nightSteps.push({ t: "collector" });
+  if (monthNight) nightSteps.push({ t: "month" });
+  const nightInSteps = g.phase === "night" && !nightView.collapsed && nightView.idx < nightSteps.length;
+  const curStep = nightSteps[nightView.idx];
+  // 多段カード(蟲屋初回の三段)は line3 があるものだけタップ送り
+  const stepMaxSub = (s) => (s && s.l && s.l.line3 ? 3 : 1);
+  // 売上累計(これまでのステップの sale を合算)
+  const nightEarnSoFar = nightSteps.slice(0, nightView.idx + 1)
+    .filter((s) => s.l && s.l.t === "sale").reduce((n, s) => n + (s.l.price || 0), 0);
+  const nightAdvance = () => setNightView((v) => {
+    if (stepMaxSub(curStep) > 1 && v.sub < stepMaxSub(curStep)) return { ...v, sub: v.sub + 1 };
+    return { ...v, idx: v.idx + 1, sub: 1 };
+  });
   const nightCollapse = () => setNightView((v) => ({ ...v, collapsed: true }));
+  // 「残りをまとめる」で畳む残りの客(現ステップ以降の cust)+ 家賃
+  const moonOffset = moonOpenLine ? 1 : 0;
+  const custSeen = Math.max(0, Math.min(custCards.length, nightView.idx - moonOffset));
+  const foldedCards = [...custCards.slice(custSeen), ...(rentCard ? [rentCard] : [])];
   // 現行の一覧ログ形式(まとめ表示・サマリで使う)
   const nightLogLine = (l, i) => (
     <div key={i} style={{
@@ -915,6 +943,104 @@ export default function BoneAndGlass() {
       <span>{l.text}</span>
     </div>
   );
+  // 夜のカード(客・大家)。revealSub=何行目まで見せるか(蟲屋初回のタップ送り用。既定は全表示)
+  const nightCardPanel = (l, revealSub = 99) => {
+    const cust = CUSTOMERS.find((c) => c.id === l.cid);
+    const custName = cust ? cust.name : (l.cid === "mushiya" ? MUSHIYA.name : l.cid === "ooya" ? OOYA.name : "");
+    const tap = !!l.line3; // 三段タップ送りカードか
+    const show2 = revealSub >= 2, show3 = revealSub >= 3;
+    const showSaleRow = l.t === "sale" && (tap ? show2 : true);
+    return (
+      <Panel style={{
+        border: `1px solid ${l.big ? "#e0b96a" : C.line}`,
+        boxShadow: l.big ? "0 0 14px rgba(201,161,94,0.15)" : "none",
+        background: l.big && l.grad ? "#282013" : C.panel,
+      }}>
+        <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+          <FramedPortrait cid={l.cid} imgs={imgs} fileImgs={fileImgs} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 15, letterSpacing: "0.1em", marginBottom: 6 }}>{custName}</div>
+            <div style={{ fontSize: 13, lineHeight: 1.9, color: l.line ? C.ivory : C.dim }}>
+              {l.line ? withPeriod(l.line) : (l.narr || l.text)}
+            </div>
+            {l.line2 && show2 && <div style={{ fontSize: 13, lineHeight: 1.9, color: C.ivory, marginTop: 6 }}>{withPeriod(l.line2)}</div>}
+            {l.line3 && show3 && <div style={{ fontSize: 13, lineHeight: 1.9, color: C.ivory, marginTop: 6 }}>{withPeriod(l.line3)}</div>}
+            {l.sub && show2 && <div style={{ fontSize: 12, lineHeight: 1.8, color: C.dim, marginTop: 8 }}>{l.sub}</div>}
+          </div>
+        </div>
+        {showSaleRow && (
+          <div style={{ marginTop: 10, borderTop: `1px solid ${l.grad ? "#e0b96a" : C.line}`, paddingTop: 8, display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+            <SpecIcon id={l.itemId} fileImgs={fileImgs} size={26} emojiSize={16} />
+            <span>{specOf(l.itemId).name}</span>
+            <span style={{ marginLeft: "auto", color: l.grad ? "#e0b96a" : C.brass, fontVariantNumeric: "tabular-nums" }}>{l.price} G</span>
+          </div>
+        )}
+        {l.t === "rent" && l.payLabel && (
+          <div style={{ marginTop: 10, borderTop: `1px solid ${C.line}`, paddingTop: 8, display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+            <span style={{ color: C.dim }}>支払い</span>
+            <span style={{ marginLeft: "auto", color: C.red, fontVariantNumeric: "tabular-nums" }}>{l.payLabel}</span>
+          </div>
+        )}
+      </Panel>
+    );
+  };
+  // 地の文だけの一拍(月の独白・閉店後の区切り)
+  const nightBeatPanel = (text) => (
+    <div style={{ minHeight: 160, display: "flex", alignItems: "center", justifyContent: "center", padding: "24px 16px" }}>
+      <div style={{ fontSize: 14, color: C.dim, lineHeight: 2, textAlign: "center", letterSpacing: "0.08em" }}>{text}</div>
+    </div>
+  );
+  // 蒐集家の交渉パネル(未解決なら交渉、解決後は結果)
+  const collectorPanel = () => {
+    if (g.offer) {
+      const sp = SPECIMENS[g.offer.specId];
+      const base = basePrice(g, g.offer.specId);
+      const fair = round5(base * 1.6), high = round5(base * 2.2);
+      const trust = g.trust || 0;
+      const appearLine = trust <= -2 ? COLLECTOR.appearCold : trust >= 2 ? COLLECTOR.appearWarm : COLLECTOR.appear;
+      return (
+        <Panel style={{ borderColor: C.night }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+            <Portrait cid="collector" imgs={imgs} fileImgs={fileImgs} size={40} />
+            <div style={{ fontSize: 12, color: C.night, letterSpacing: "0.15em" }}>{COLLECTOR.name}</div>
+          </div>
+          <div style={{ fontSize: 13, lineHeight: 1.9, color: C.ivory }}>
+            {withPeriod(appearLine)}<br />
+            {withPeriod(COLLECTOR.want(sp.name))}
+          </div>
+          <div style={{ fontSize: 11, color: C.dim, margin: "6px 0" }}>{sp.icon} {sp.name}(基準 {round5(base)}G)を望んでいる</div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+            <Btn primary onClick={() => resolveOffer("fair")}>言い値で売る {fair}G</Btn>
+            <Btn onClick={() => resolveOffer("high")}>ふっかける {high}G(賭け)</Btn>
+            <Btn onClick={() => resolveOffer("refuse")}>断る</Btn>
+          </div>
+        </Panel>
+      );
+    }
+    if (g.offerResult) return (
+      <Panel style={{ borderColor: C.night }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+          <Portrait cid="collector" imgs={imgs} fileImgs={fileImgs} size={40} />
+          <div style={{ fontSize: 12, color: C.night, letterSpacing: "0.15em" }}>{COLLECTOR.name}</div>
+        </div>
+        <div style={{ fontSize: 13, lineHeight: 1.8, color: C.ivory }}>{g.offerResult}</div>
+      </Panel>
+    );
+    return null;
+  };
+  // 月次記録パネル(30日ごと。カード送りの最後の一枚。金縁)
+  const monthPanel = () => (
+    <Panel style={{ border: `1px solid ${C.brass}`, boxShadow: "0 0 12px rgba(201,161,94,0.12)" }}>
+      <div style={{ fontSize: 13, color: C.brass, letterSpacing: "0.2em", marginBottom: 6 }}>{g.day / 30}ヶ月目の記録</div>
+      <div style={{ fontSize: 13, lineHeight: 2 }}>
+        累計売上 {g.totalEarn}G / 販売数 {g.totalSold}点<br />
+        図鑑 {knownSpecs.size}/{Object.keys(SPECIMENS).length} 種 / 銘板 {g.knownSets.length}/{SETS.length} / 評判 {g.rep}<br />
+        <span style={{ color: C.dim, fontSize: 12 }}>
+          {g.rep >= 40 ? "この街で知らぬ者のない標本商になった。" : g.rep >= 20 ? "常連のつく、良い店になってきた。" : "まだ小さな店だが、硝子は毎晩磨かれている。"}
+        </span>
+      </div>
+    </Panel>
+  );
 
   // 二次加工マーク: '⚒'=発見済みの次加工あり '?'=未知の次加工あり
   const nextMark = (specId) => {
@@ -926,8 +1052,8 @@ export default function BoneAndGlass() {
     <div style={{ minHeight: "100vh", background: C.bg, color: C.ivory, fontFamily: "Georgia, 'Yu Mincho', serif" }}>
       <div style={{ maxWidth: 560, margin: "0 auto", paddingTop: 12, paddingLeft: 12, paddingRight: 12, paddingBottom: "calc(96px + env(safe-area-inset-bottom, 0px))" }}>
 
-        {/* ヘッダー */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", borderBottom: `1px solid ${C.line}`, paddingBottom: 8, marginBottom: 10 }}>
+        {/* ヘッダー(左右ブロックの下端を揃える。所持金をスコアとして主役に) */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 10, borderBottom: `1px solid ${C.line}`, paddingBottom: 8, marginBottom: 10 }}>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 10, letterSpacing: "0.3em", color: C.dim, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>骨と硝子の店</div>
             {(aliasCat || g.anaAlias) && (
@@ -937,9 +1063,9 @@ export default function BoneAndGlass() {
             )}
             <div style={{ fontSize: 16, letterSpacing: "0.1em", whiteSpace: "nowrap" }}>{g.day}日目 <MoonIcon day={g.day} fileImgs={fileImgs} size={14} /> <span style={{ color: C.brass }}>{PHASE_LABEL[g.phase]}</span></div>
           </div>
-          <div style={{ textAlign: "right", fontSize: 13 }}>
-            <div style={{ color: g.gold < 0 ? C.red : C.brass, fontVariantNumeric: "tabular-nums" }}>{g.gold} G{g.gold < 0 ? "(借金)" : ""}</div>
-            <div style={{ color: C.dim }}>評判 {g.rep} · {g.ownShop
+          <div style={{ textAlign: "right", flexShrink: 0 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, letterSpacing: "0.03em", lineHeight: 1.2, color: g.gold < 0 ? C.red : C.brass, fontVariantNumeric: "tabular-nums" }}>{g.gold} G{g.gold < 0 ? "(借金)" : ""}</div>
+            <div style={{ fontSize: 12, color: C.dim, marginTop: 2 }}>評判 {g.rep} · {g.ownShop
               ? <span style={{ color: C.glass }}>自分の店</span>
               : <span style={{ color: daysToRent === 0 ? C.red : C.dim }}>{daysToRent === 0 ? "今夜家賃" : `家賃${rentFor(g.rep)}Gまで${daysToRent}日`}</span>}</div>
           </div>
@@ -1098,7 +1224,7 @@ export default function BoneAndGlass() {
                         <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>
                           {!possible ? "この素材には合わないようだ"
                             : !lvOk ? `熟練が足りない — ${p.name}Lv${r.minLv}になれば、何かできそうだ`
-                            : known ? `→ ${SPECIMENS[r.to].icon} ${SPECIMENS[r.to].name}(基準 ${round5(basePrice(g, r.to))}G)`
+                            : known ? `→ ${SPECIMENS[r.to].icon} ${SPECIMENS[r.to].name}(基準 ${round5(basePrice(g, r.to))}G${(g.spec[r.to] || 0) > 0 ? ` · 在庫${g.spec[r.to]}` : ""})`
                             : "→ ??? 何ができるかは、やってみないと分からない"}
                         </div>
                       )}
@@ -1217,68 +1343,49 @@ export default function BoneAndGlass() {
           </div>
         )}
 
-        {/* ===== 夜 ===== */}
-        {/* 満月・新月の晩の開店一言(夜画面の冒頭・地の文) */}
-        {g.phase === "night" && moonOpenLine && (
-          <div style={{ fontSize: 12, color: C.dim, lineHeight: 1.8, marginBottom: 10, textAlign: "center", letterSpacing: "0.05em" }}>{moonOpenLine}</div>
-        )}
-        {g.phase === "night" && nightInCards && (() => {
-          const l = nightCust[nightView.idx];
-          const cust = CUSTOMERS.find((c) => c.id === l.cid);
-          const custName = cust ? cust.name : (l.cid === "mushiya" ? MUSHIYA.name : l.cid === "ooya" ? OOYA.name : "");
+        {/* ===== 夜(カード送り) ===== */}
+        {g.phase === "night" && nightInSteps && (() => {
+          const s = curStep;
+          const canFold = s.t === "moon" || s.t === "cust"; // 「残りをまとめる」は客の間だけ
+          const isCollector = s.t === "collector";
           return (
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
                 <div style={{ fontSize: 11, color: C.dim, letterSpacing: "0.2em" }}>本日の営業</div>
-                <div style={{ fontSize: 11, color: C.dim, fontVariantNumeric: "tabular-nums" }}>{nightView.idx + 1} / {nightCust.length} 組</div>
+                <div style={{ fontSize: 11, color: C.dim, fontVariantNumeric: "tabular-nums" }}>{nightView.idx + 1} / {nightSteps.length}</div>
               </div>
-              <div onClick={nightAdvance} style={{ cursor: "pointer" }}>
-                <Panel style={l.big ? {
-                  borderColor: "#e0b96a", boxShadow: "0 0 14px rgba(201,161,94,0.15)",
-                  ...(l.grad ? { background: "#282013" } : null),
-                } : null}>
-                  <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-                    <FramedPortrait cid={l.cid} imgs={imgs} fileImgs={fileImgs} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      {/* カード表示ではセリフの「」を外し、地の文(薄色)と文字色で区別する */}
-                      <div style={{ fontSize: 15, letterSpacing: "0.1em", marginBottom: 6 }}>{custName}</div>
-                      <div style={{ fontSize: 13, lineHeight: 1.9, color: l.line ? C.ivory : C.dim }}>
-                        {l.line ? l.line : (l.narr || l.text)}
-                      </div>
-                      {l.line2 && <div style={{ fontSize: 13, lineHeight: 1.9, color: C.ivory, marginTop: 6 }}>{l.line2}</div>}
-                      {l.line3 && <div style={{ fontSize: 13, lineHeight: 1.9, color: C.ivory, marginTop: 6 }}>{l.line3}</div>}
-                      {l.sub && <div style={{ fontSize: 12, lineHeight: 1.8, color: C.dim, marginTop: 8 }}>{l.sub}</div>}
-                    </div>
+
+              {isCollector ? (
+                // 蒐集家: 交渉が済むまで送れない。済んだら「次へ」で進む
+                <>
+                  {collectorPanel()}
+                  {g.offerResult && <Btn primary onClick={nightAdvance} style={{ marginLeft: "auto" }}>次へ →</Btn>}
+                </>
+              ) : (
+                <>
+                  <div onClick={nightAdvance} style={{ cursor: "pointer" }}>
+                    {s.t === "moon" ? <Panel>{nightBeatPanel(moonOpenLine)}</Panel>
+                      : s.t === "divider" ? <Panel>{nightBeatPanel("——閉店後。")}</Panel>
+                      : s.t === "month" ? monthPanel()
+                      : nightCardPanel(s.l, s.l && s.l.line3 ? nightView.sub : 99)}
                   </div>
-                  {l.t === "sale" && (
-                    <div style={{ marginTop: 10, borderTop: `1px solid ${l.grad ? "#e0b96a" : C.line}`, paddingTop: 8, display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
-                      <SpecIcon id={l.itemId} fileImgs={fileImgs} size={26} emojiSize={16} />
-                      <span>{specOf(l.itemId).name}</span>
-                      <span style={{ marginLeft: "auto", color: l.grad ? "#e0b96a" : C.brass, fontVariantNumeric: "tabular-nums" }}>{l.price} G</span>
-                    </div>
-                  )}
-                  {l.t === "rent" && l.payLabel && (
-                    <div style={{ marginTop: 10, borderTop: `1px solid ${C.line}`, paddingTop: 8, display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
-                      <span style={{ color: C.dim }}>支払い</span>
-                      <span style={{ marginLeft: "auto", color: C.red, fontVariantNumeric: "tabular-nums" }}>{l.payLabel}</span>
-                    </div>
-                  )}
-                </Panel>
-              </div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <Btn onClick={nightCollapse} style={{ fontSize: 12 }}>残りをまとめる</Btn>
-                <Btn primary onClick={nightAdvance} style={{ marginLeft: "auto" }}>次へ →</Btn>
-              </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    {canFold && <Btn onClick={nightCollapse} style={{ fontSize: 12 }}>残りをまとめる</Btn>}
+                    <Btn primary onClick={nightAdvance} style={{ marginLeft: "auto" }}>次へ →</Btn>
+                  </div>
+                </>
+              )}
             </div>
           );
         })()}
-        {g.phase === "night" && !nightInCards && (
+        {g.phase === "night" && !nightInSteps && (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {nightView.collapsed && nightCust.slice(nightView.idx).length > 0 && (
+            {/* まとめた場合: 残りの客+家賃を一覧ログ形式で */}
+            {nightView.collapsed && foldedCards.length > 0 && (
               <Panel>
                 <div style={{ fontSize: 11, color: C.dim, marginBottom: 8, letterSpacing: "0.2em" }}>そのあとの客</div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                  {nightCust.slice(nightView.idx).map(nightLogLine)}
+                  {foldedCards.map(nightLogLine)}
                 </div>
               </Panel>
             )}
@@ -1295,52 +1402,13 @@ export default function BoneAndGlass() {
               </div>
             </Panel>
 
-            {/* 蒐集家 */}
-            {g.offer && (() => {
-              const sp = SPECIMENS[g.offer.specId];
-              const base = basePrice(g, g.offer.specId);
-              const fair = round5(base * 1.6), high = round5(base * 2.2);
-              const trust = g.trust || 0;
-              const appearLine = trust <= -2 ? COLLECTOR.appearCold : trust >= 2 ? COLLECTOR.appearWarm : COLLECTOR.appear;
-              return (
-                <Panel style={{ borderColor: C.night }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-                    <Portrait cid="collector" imgs={imgs} fileImgs={fileImgs} size={40} />
-                    <div style={{ fontSize: 12, color: C.night, letterSpacing: "0.15em" }}>閉店後、扉が叩かれた</div>
-                  </div>
-                  <div style={{ fontSize: 13, lineHeight: 1.9, color: C.ivory }}>
-                    {COLLECTOR.name}「{appearLine}」<br />
-                    「{COLLECTOR.want(sp.name)}」
-                  </div>
-                  <div style={{ fontSize: 11, color: C.dim, margin: "6px 0" }}>{sp.icon} {sp.name}(基準 {round5(base)}G)を望んでいる</div>
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
-                    <Btn primary onClick={() => resolveOffer("fair")}>言い値で売る {fair}G</Btn>
-                    <Btn onClick={() => resolveOffer("high")}>ふっかける {high}G(賭け)</Btn>
-                    <Btn onClick={() => resolveOffer("refuse")}>断る</Btn>
-                  </div>
-                </Panel>
-              );
-            })()}
-            {g.offerResult && (
-              <Panel style={{ borderColor: C.night }}>
-                <div style={{ fontSize: 13, lineHeight: 1.8, color: C.ivory }}>{g.offerResult}</div>
-              </Panel>
-            )}
+            {/* まとめた場合でも蒐集家はスキップ不可。カード送りで済ませていれば表示しない */}
+            {nightView.collapsed && collectorPanel()}
 
             {!g.ownShop && daysToRent === 1 && <div style={{ fontSize: 12, color: C.red, textAlign: "center" }}>明日は家賃の日({rentFor(g.rep)}G)。</div>}
 
-            {g.day % 30 === 0 && (
-              <Panel style={{ borderColor: C.brass }}>
-                <div style={{ fontSize: 13, color: C.brass, letterSpacing: "0.2em", marginBottom: 6 }}>{g.day / 30}ヶ月目の記録</div>
-                <div style={{ fontSize: 13, lineHeight: 2 }}>
-                  累計売上 {g.totalEarn}G / 販売数 {g.totalSold}点<br />
-                  図鑑 {knownSpecs.size}/{Object.keys(SPECIMENS).length} 種 / 銘板 {g.knownSets.length}/{SETS.length} / 評判 {g.rep}<br />
-                  <span style={{ color: C.dim, fontSize: 12 }}>
-                    {g.rep >= 40 ? "この街で知らぬ者のない標本商になった。" : g.rep >= 20 ? "常連のつく、良い店になってきた。" : "まだ小さな店だが、硝子は毎晩磨かれている。"}
-                  </span>
-                </div>
-              </Panel>
-            )}
+            {/* まとめた場合の月次記録(カード送りで見ていなければ) */}
+            {nightView.collapsed && monthNight && monthPanel()}
           </div>
         )}
 
@@ -1573,7 +1641,7 @@ export default function BoneAndGlass() {
 
       {/* ===== 画面下端に固定する要素(ルート直下に置き、祖先スタイルの影響を受けないようにする) ===== */}
       {/* 夜のカード送り中の売上累計チップ(コンテンツ枠の右端に揃える。PCで右下隅に寄りすぎない) */}
-      {g.phase === "night" && nightInCards && (
+      {g.phase === "night" && nightInSteps && (
         <div style={{ position: "fixed", left: 0, right: 0, bottom: "calc(70px + env(safe-area-inset-bottom, 0px))", zIndex: 40, pointerEvents: "none" }}>
           <div style={{ maxWidth: 560, margin: "0 auto", padding: "0 12px", display: "flex", justifyContent: "flex-end" }}>
             <div style={{ pointerEvents: "auto", background: "rgba(31,26,19,0.95)", border: `1px solid ${C.brass}`, borderRadius: 4, padding: "5px 10px", fontSize: 12, color: C.brass, fontVariantNumeric: "tabular-nums" }}>
@@ -1598,7 +1666,7 @@ export default function BoneAndGlass() {
                 <Btn primary onClick={openStore} style={FOOT_BTN}>開店する</Btn>
               </>
             )}
-            {g.phase === "night" && <Btn primary onClick={nextDay} disabled={!!g.offer || nightInCards} style={FOOT_BTN}>翌朝へ →</Btn>}
+            {g.phase === "night" && <Btn primary onClick={nextDay} disabled={!!g.offer || nightInSteps} style={FOOT_BTN}>翌朝へ →</Btn>}
           </div>
         </div>
       </div>

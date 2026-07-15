@@ -373,19 +373,26 @@ function simulateNight(g) {
     const rent = rentFor(g.rep); // 開店前(朝時点)の評判で判定
     const cash = g.gold + gold;  // 支払い直前の所持金
     gold -= rent; rentPaid = rent;
-    let text;
+    // 家賃回収は客と同じカードに昇格。line=大家のセリフ / narr=セリフなしの地の文 / payLabel=支払額 / text=まとめ時の一行
+    let line = null, narr = null, payLabel, text;
     if (rent > (g.lastRent != null ? g.lastRent : RENT)) {
-      text = rent >= 200
-        ? `大家「${OOYA.raise200}」— 家賃は ${rent}G になった。`
-        : `大家「${OOYA.raise150}」— 家賃は ${rent}G になった。`;
+      line = rent >= 200 ? OOYA.raise200 : OOYA.raise150;
+      payLabel = `家賃 ${rent}G に`;
+      text = `大家「${line}」— 家賃は ${rent}G になった。`;
     } else if (cash < rent) {
-      text = `大家「${OOYA.broke}」`;
+      line = OOYA.broke;
+      payLabel = `家賃 ${rent}G(ツケ)`;
+      text = `大家「${line}」`;
     } else if (Math.random() < 0.5) {
-      text = `大家「${pick(OOYA.normal)}」— 家賃 ${rent}G を支払った。`;
+      line = pick(OOYA.normal);
+      payLabel = `家賃 ${rent}G`;
+      text = `大家「${line}」— 家賃 ${rent}G を支払った。`;
     } else {
+      narr = "大家が来た。";
+      payLabel = `家賃 ${rent}G`;
       text = `大家が来た。家賃 ${rent}G を支払った。`;
     }
-    rentLog = { t: "rent", cid: "ooya", text };
+    rentLog = { t: "rent", cid: "ooya", line, narr, payLabel, text };
   }
 
   // 見習いの日当
@@ -795,7 +802,7 @@ export default function BoneAndGlass() {
         {fileImgs && fileImgs.logo
           ? <img src={fileImgs.logo} alt="骨と硝子の店" style={{ width: "80%", maxWidth: 270, height: "auto", display: "block", margin: "7px 0 6px" }} />
           : <h1 style={{ fontSize: 34, fontWeight: 400, letterSpacing: "0.25em", margin: "0 0 6px" }}>骨と硝子の店</h1>}
-        <div style={{ width: 180, height: 1, background: C.brass, margin: "14px 0 18px" }} />
+        <div style={{ width: 180, height: 0.5, background: C.brass, margin: "14px 0 18px" }} />
         <p style={{ color: "#b3a586", fontSize: 13, textAlign: "center", lineHeight: 1.9, maxWidth: 340, margin: "0 0 28px" }}>
           亡骸と鉱石を仕入れ、標本に仕立て、<br />硝子の棚に並べて売る。
         </p>
@@ -820,8 +827,9 @@ export default function BoneAndGlass() {
   const daysToRent = (RENT_INTERVAL - (g.day % RENT_INTERVAL)) % RENT_INTERVAL;
   const aliasCat = g.alias;
 
-  // 夜のカード送り用: 客の来店(カード対象)とそれ以外(家賃・通り名・イベント行など、サマリ行き)
-  const isCardEntry = (l) => l.cid && (l.t === "sale" || l.t === "misc");
+  // 夜のカード送り用: 客の来店(カード対象)とそれ以外(通り名・イベント行など、サマリ行き)
+  // 大家の家賃回収(t:"rent"+cid)も客と同じカードに昇格。見習い日当(cidなし)はサマリのまま
+  const isCardEntry = (l) => l.cid && (l.t === "sale" || l.t === "misc" || l.t === "rent");
   const nightCust = g.nightLog.filter(isCardEntry);
   const nightSys = g.nightLog.filter((l) => !isCardEntry(l));
   const nightInCards = g.phase === "night" && !nightView.collapsed && nightView.idx < nightCust.length;
@@ -885,7 +893,7 @@ export default function BoneAndGlass() {
             <Panel style={{ background: "transparent" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
                 <div style={{ fontSize: 11, color: C.dim }}>倉庫</div>
-                {wormCount > 0 && (
+                {wormCount > 0 && g.mushiFirstDone && (
                   <button onClick={() => setBurnConfirm(true)}
                     style={{ fontFamily: "inherit", cursor: "pointer", fontSize: 11, color: C.red, background: "none", border: `1px solid ${C.red}`, borderRadius: 3, padding: "2px 8px" }}>
                     虫食いを焚き付けに
@@ -1149,7 +1157,7 @@ export default function BoneAndGlass() {
         {g.phase === "night" && nightInCards && (() => {
           const l = nightCust[nightView.idx];
           const cust = CUSTOMERS.find((c) => c.id === l.cid);
-          const custName = cust ? cust.name : (l.cid === "mushiya" ? MUSHIYA.name : "");
+          const custName = cust ? cust.name : (l.cid === "mushiya" ? MUSHIYA.name : l.cid === "ooya" ? OOYA.name : "");
           return (
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
@@ -1164,12 +1172,13 @@ export default function BoneAndGlass() {
                   <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
                     <FramedPortrait cid={l.cid} imgs={imgs} fileImgs={fileImgs} />
                     <div style={{ flex: 1, minWidth: 0 }}>
+                      {/* カード表示ではセリフの「」を外し、地の文(薄色)と文字色で区別する */}
                       <div style={{ fontSize: 15, letterSpacing: "0.1em", marginBottom: 6 }}>{custName}</div>
                       <div style={{ fontSize: 13, lineHeight: 1.9, color: l.line ? C.ivory : C.dim }}>
-                        {l.line ? `「${l.line}」` : l.text}
+                        {l.line ? l.line : (l.narr || l.text)}
                       </div>
-                      {l.line2 && <div style={{ fontSize: 13, lineHeight: 1.9, color: C.ivory, marginTop: 6 }}>「{l.line2}」</div>}
-                      {l.line3 && <div style={{ fontSize: 13, lineHeight: 1.9, color: C.ivory, marginTop: 6 }}>「{l.line3}」</div>}
+                      {l.line2 && <div style={{ fontSize: 13, lineHeight: 1.9, color: C.ivory, marginTop: 6 }}>{l.line2}</div>}
+                      {l.line3 && <div style={{ fontSize: 13, lineHeight: 1.9, color: C.ivory, marginTop: 6 }}>{l.line3}</div>}
                       {l.sub && <div style={{ fontSize: 12, lineHeight: 1.8, color: C.dim, marginTop: 8 }}>{l.sub}</div>}
                     </div>
                   </div>
@@ -1178,6 +1187,12 @@ export default function BoneAndGlass() {
                       <SpecIcon id={l.itemId} fileImgs={fileImgs} size={26} emojiSize={16} />
                       <span>{specOf(l.itemId).name}</span>
                       <span style={{ marginLeft: "auto", color: l.grad ? "#e0b96a" : C.brass, fontVariantNumeric: "tabular-nums" }}>{l.price} G</span>
+                    </div>
+                  )}
+                  {l.t === "rent" && l.payLabel && (
+                    <div style={{ marginTop: 10, borderTop: `1px solid ${C.line}`, paddingTop: 8, display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+                      <span style={{ color: C.dim }}>支払い</span>
+                      <span style={{ marginLeft: "auto", color: C.red, fontVariantNumeric: "tabular-nums" }}>{l.payLabel}</span>
                     </div>
                   )}
                 </Panel>

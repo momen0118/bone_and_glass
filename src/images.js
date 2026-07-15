@@ -7,7 +7,7 @@
 
 import { SPECIMENS, MATERIALS, SITES } from "./data.js";
 
-export const PORTRAIT_IDS = ["gakusei", "gakusha", "koujika", "kifujin", "collector", "ooya", "wakate", "mushiya"];
+export const PORTRAIT_IDS = ["gakusei", "gakusha", "koujika", "kifujin", "collector", "ooya", "wakate", "mushiya", "saisyuunin"];
 
 // リポジトリ読み込み画像のスロット種別ごとの初期zoom(ここ一箇所で調整する)
 // 肖像は横長(左右に壁紙、中央に楕円の額)なので、円形切り抜きに楕円の内側が収まるよう拡大する

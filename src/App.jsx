@@ -56,6 +56,7 @@ function newGame() {
     gakuseiGraduated: false, // 学生の就職イベント(一度きり)
     swampUnlocked: false,    // 霧の湿原(老学者への累計販売で解禁)
     caveUnlocked: false, gatherCount: 0, // 石灰洞窟(森・入り江への依頼の累計で解禁)
+    siteCount: {}, // 採集地別の依頼回数(馴染みの地の判定に使う)
     camphor: 0, // 樟脳の残晩数
     mushiFirstDone: false,  // 初回虫食いイベント消化=樟脳解禁
     mushiFirstNight: false, // 初回イベント: 虫湧き済みで蟲屋の来店待ち
@@ -91,7 +92,8 @@ function migrate(loaded) {
   g.swampUnlocked = loaded.swampUnlocked !== undefined ? !!loaded.swampUnlocked : (loaded.rep || 0) >= 10;
   g.caveUnlocked = loaded.caveUnlocked !== undefined ? !!loaded.caveUnlocked : true;
   g.gatherCount = loaded.gatherCount || 0;
-  g.camphor = loaded.camphor || 0;
+  g.siteCount = loaded.siteCount || {}; // 旧セーブは採集地別カウント0開始
+  g.camphor = loaded.camphor || 0; // 旧形式(最大14晩)の残値はそのまま引き継ぎ、次回購入から新仕様
   g.mushiFirstDone = !!loaded.mushiFirstDone;
   g.mushiFirstNight = !!loaded.mushiFirstNight;
   g.mushiMorning = loaded.mushiMorning || null;
@@ -283,9 +285,12 @@ function simulateNight(g) {
   // 倉庫の乾燥系(骨格・昆虫・工芸)の通常標本
   const dryList = () => Object.keys(spec).filter((k) => !isWorm(k) && spec[k] > 0 && WORM_CATS.includes(SPECIMENS[k].cat));
   const dryCount = () => dryList().reduce((n, k) => n + spec[k], 0);
+  // 判定母数N: 無傷の乾燥系 + 虫食い品(虫食いの山も羽音を増やす)
+  const wormTotal = () => Object.keys(spec).filter((k) => isWorm(k)).reduce((n, k) => n + spec[k], 0)
+    + shelf.filter((x) => x && isWorm(x)).length;
   const spawnWorm = () => {
     const bag = [];
-    dryList().forEach((k) => { for (let i = 0; i < spec[k]; i++) bag.push(k); });
+    dryList().forEach((k) => { for (let i = 0; i < spec[k]; i++) bag.push(k); }); // 抽選対象は無傷のみ
     if (!bag.length) return null;
     const victim = pick(bag);
     spec[victim] -= 1; if (spec[victim] <= 0) delete spec[victim];
@@ -311,8 +316,8 @@ function simulateNight(g) {
     if (camphor >= 1) {
       camphor -= 1; // 焚いている晩は湧かない(毎晩1消費)
     } else {
-      const N = dryCount();
-      if (N > 0 && Math.random() < Math.min(N * 0.06, 0.6)) {
+      const N = dryCount() + wormTotal(); // 虫食い品も母数に算入
+      if (N > 0 && Math.random() < Math.min(N * 0.04, 0.6)) {
         const name = spawnWorm();
         if (name) mushiMorning = name;
       }
@@ -325,19 +330,33 @@ function simulateNight(g) {
   // 蟲屋の来店処理(来客上限とは別枠)
   if (mushiyaVisit) {
     const wormSlots = shelf.map((id, i) => ({ id, i })).filter((s) => s.id && isWorm(s.id) && s.i < g.shelfSize);
-    if (wormSlots.length) {
+    const buyWorm = () => {
       const t = pick(wormSlots);
       const price = round5(basePrice(g, t.id) * 0.7); // 基準価(50%)の70%固定・評判/カウント不変
-      shelf[t.i] = null;
-      gold += price;
+      shelf[t.i] = null; gold += price;
+      return { id: t.id, price };
+    };
+    if (firstMushiya) {
+      // 初回イベントは三段構成(二段目のみ棚の虫食い有無で分岐)
+      if (wormSlots.length) {
+        const b = buyWorm();
+        log.push({ t: "sale", cid: "mushiya",
+          line: MUSHIYA.firstAppear, line2: MUSHIYA.firstBuy, line3: MUSHIYA.firstLeave,
+          itemId: b.id, price: b.price,
+          text: `蟲屋「${MUSHIYA.firstAppear}」「${MUSHIYA.firstBuy}」— ${specOf(b.id).name}を ${b.price}G で購入。\n蟲屋「${MUSHIYA.firstLeave}」` });
+      } else {
+        log.push({ t: "misc", cid: "mushiya",
+          line: MUSHIYA.firstAppear, line2: MUSHIYA.firstNone, line3: MUSHIYA.firstLeave,
+          text: `蟲屋「${MUSHIYA.firstAppear}」「${MUSHIYA.firstNone}」「${MUSHIYA.firstLeave}」` });
+      }
+    } else if (wormSlots.length) {
+      // 2回目以降は従来のランダム運用
+      const b = buyWorm();
       const line = pick(MUSHIYA.buy);
-      log.push({ t: "sale", cid: "mushiya", line, line2: firstMushiya ? MUSHIYA.firstLeave : null,
-        itemId: t.id, price,
-        text: `蟲屋「${line}」— ${specOf(t.id).name}を ${price}G で購入。${firstMushiya ? `\n蟲屋「${MUSHIYA.firstLeave}」` : ""}` });
+      log.push({ t: "sale", cid: "mushiya", line, itemId: b.id, price: b.price,
+        text: `蟲屋「${line}」— ${specOf(b.id).name}を ${b.price}G で購入。` });
     } else {
-      // 棚に虫食いがない: 初回イベントは去り際のセリフ、通常はただの空振り
-      const line = firstMushiya ? MUSHIYA.firstLeave : MUSHIYA.empty;
-      log.push({ t: "misc", cid: "mushiya", line, text: `蟲屋「${line}」` });
+      log.push({ t: "misc", cid: "mushiya", line: MUSHIYA.empty, text: `蟲屋「${MUSHIYA.empty}」` });
     }
   }
 
@@ -403,6 +422,7 @@ const IMG_SLOTS = [
   { id: "ooya",      name: "大家" },
   { id: "wakate",    name: "若い研究者" },
   { id: "mushiya",   name: "蟲屋" },
+  { id: "saisyuunin", name: "採集人" },
 ];
 const ZOOMS = [1.0, 1.15, 1.35];
 function resizeImage(file, maxW, maxH, cb) {
@@ -531,6 +551,8 @@ export default function BoneAndGlass() {
   const [caveEvent, setCaveEvent] = useState(null);
   // 店買い取りの専用演出(null=非表示 / 0〜=表示中のステップ)
   const [buyoutStep, setBuyoutStep] = useState(null);
+  // 焚き付けの確認ダイアログ
+  const [burnConfirm, setBurnConfirm] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -564,16 +586,20 @@ export default function BoneAndGlass() {
   // ---- 朝 ----
   const gather = (site) => {
     if (g.gold < site.cost) return flash("お金が足りない");
+    // 通常は2個。馴染みの地(この採集地への依頼が8回目以降)は35%で3個目が付く(表示・通知なし)
+    const nth = (g.siteCount[site.id] || 0) + 1;
+    const amount = 2 + (nth >= 8 && Math.random() < 0.35 ? 1 : 0);
     const got = {};
-    for (let i = 0; i < 3; i++) { const m = weightedPick(site.table); got[m] = (got[m] || 0) + 1; }
+    for (let i = 0; i < amount; i++) { const m = weightedPick(site.table); got[m] = (got[m] || 0) + 1; }
     const inv = { ...g.inv };
     Object.entries(got).forEach(([k, v]) => (inv[k] = (inv[k] || 0) + v));
+    const siteCount = { ...g.siteCount, [site.id]: nth };
     // 洞窟の解禁: 森・入り江への依頼の累計が閾値に達したら
     let gatherCount = g.gatherCount || 0, caveUnlocked = g.caveUnlocked;
     if (site.id === "mori" || site.id === "umibe") gatherCount += 1;
     const justUnlocked = !caveUnlocked && gatherCount >= CAVE_UNLOCK.threshold;
     if (justUnlocked) { caveUnlocked = true; setCaveEvent(CAVE_UNLOCK.text); }
-    setG({ ...g, gold: g.gold - site.cost, inv, gatherCount, caveUnlocked });
+    setG({ ...g, gold: g.gold - site.cost, inv, siteCount, gatherCount, caveUnlocked });
     flash(justUnlocked ? CAVE_UNLOCK.text : "入手: " + Object.entries(got).map(([k, v]) => `${itemIcon(k)}${itemName(k)}×${v}`).join("、"));
   };
   const buySupply = (s) => {
@@ -581,10 +607,20 @@ export default function BoneAndGlass() {
     const inv = { ...g.inv }; inv[s.id] = (inv[s.id] || 0) + 1;
     setG({ ...g, gold: g.gold - s.cost, inv });
   };
-  // 樟脳を買う(7晩分。最大14晩まで備蓄。買い足しは無駄が出ないよう残り7晩以下のときのみ)
+  // 樟脳を買う(5晩分。所持は1個まで=残晩数があるうちは買えない)
   const buyCamphor = () => {
-    if (g.gold < CAMPHOR.cost || g.camphor > CAMPHOR.max - CAMPHOR.nights) return;
-    setG({ ...g, gold: g.gold - CAMPHOR.cost, camphor: Math.min(CAMPHOR.max, g.camphor + CAMPHOR.nights) });
+    if (g.gold < CAMPHOR.cost || g.camphor > 0) return;
+    setG({ ...g, gold: g.gold - CAMPHOR.cost, camphor: CAMPHOR.nights });
+    flash(CAMPHOR.toast);
+  };
+  // 虫食い品をまとめて焚き付けにする(倉庫・棚のすべて。0G)
+  const burnWorms = () => {
+    const spec = { ...g.spec };
+    Object.keys(spec).forEach((k) => { if (isWorm(k)) delete spec[k]; });
+    const shelf = g.shelf.map((x) => (x && isWorm(x) ? null : x));
+    setG({ ...g, spec, shelf });
+    setBurnConfirm(false);
+    flash("虫食いの品を、竈にくべた。よく燃えた。");
   };
   const expandShelf = () => {
     const next = g.shelfSize + 1, cost = SHELF_EXPAND[next];
@@ -757,7 +793,7 @@ export default function BoneAndGlass() {
       <div style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "center", color: C.ivory }}>
         <div style={{ fontSize: 13, letterSpacing: "0.5em", color: C.dim, marginBottom: 8 }}>OS ET VITRUM</div>
         {fileImgs && fileImgs.logo
-          ? <img src={fileImgs.logo} alt="骨と硝子の店" style={{ width: "80%", maxWidth: 300, height: "auto", display: "block", margin: "0 0 6px" }} />
+          ? <img src={fileImgs.logo} alt="骨と硝子の店" style={{ width: "80%", maxWidth: 270, height: "auto", display: "block", margin: "7px 0 6px" }} />
           : <h1 style={{ fontSize: 34, fontWeight: 400, letterSpacing: "0.25em", margin: "0 0 6px" }}>骨と硝子の店</h1>}
         <div style={{ width: 180, height: 1, background: C.brass, margin: "14px 0 18px" }} />
         <p style={{ color: "#b3a586", fontSize: 13, textAlign: "center", lineHeight: 1.9, maxWidth: 340, margin: "0 0 28px" }}>
@@ -776,6 +812,9 @@ export default function BoneAndGlass() {
   const invEntries = Object.entries(g.inv).filter(([, v]) => v > 0)
     .sort((a, b) => MAT_ORDER.indexOf(a[0]) - MAT_ORDER.indexOf(b[0]));
   const specEntries = Object.entries(g.spec).filter(([, v]) => v > 0);
+  // 所持している虫食い品の総数(倉庫+棚)。焚き付けボタンの表示・確認文に使う
+  const wormCount = specEntries.filter(([k]) => isWorm(k)).reduce((n, [, v]) => n + v, 0)
+    + g.shelf.filter((x) => x && isWorm(x)).length;
   const knownSpecs = new Set(RECIPES.filter((r) => g.known.includes(r.id)).map((r) => r.to));
   const curSets = activeSets(g.shelf, g.shelfSize);
   const daysToRent = (RENT_INTERVAL - (g.day % RENT_INTERVAL)) % RENT_INTERVAL;
@@ -844,14 +883,25 @@ export default function BoneAndGlass() {
               </div>
             )}
             <Panel style={{ background: "transparent" }}>
-              <div style={{ fontSize: 11, color: C.dim, marginBottom: 4 }}>倉庫</div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
+                <div style={{ fontSize: 11, color: C.dim }}>倉庫</div>
+                {wormCount > 0 && (
+                  <button onClick={() => setBurnConfirm(true)}
+                    style={{ fontFamily: "inherit", cursor: "pointer", fontSize: 11, color: C.red, background: "none", border: `1px solid ${C.red}`, borderRadius: 3, padding: "2px 8px" }}>
+                    虫食いを焚き付けに
+                  </button>
+                )}
+              </div>
               <div style={{ fontSize: 13, lineHeight: 1.9 }}>
                 {invEntries.length ? invEntries.map(([k, v]) => <span key={k} style={{ marginRight: 10, whiteSpace: "nowrap" }}><MatIcon id={k} fileImgs={fileImgs} emojiSize={13} />{itemName(k)}×{v}</span>) : <span style={{ color: C.dim }}>空っぽだ</span>}
               </div>
             </Panel>
             <div style={{ fontSize: 12, color: C.dim, lineHeight: 1.8 }}>夜のうちに届いた依頼票に目を通す。今日はどこへ人をやろうか。</div>
             {caveEvent && (
-              <div style={{ fontSize: 12, color: C.brass, lineHeight: 1.8, borderLeft: `2px solid ${C.brass}`, paddingLeft: 8 }}>{caveEvent}</div>
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12, color: C.brass, lineHeight: 1.8, borderLeft: `2px solid ${C.brass}`, paddingLeft: 8 }}>
+                <Portrait cid="saisyuunin" imgs={imgs} fileImgs={fileImgs} size={30} />
+                <span>{caveEvent}</span>
+              </div>
             )}
             {SITES.filter((s) =>
               s.id === "shitsugen" ? g.swampUnlocked : s.id === "doukutsu" ? g.caveUnlocked : true
@@ -867,7 +917,9 @@ export default function BoneAndGlass() {
                   )}
                   <div style={{ position: "relative", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <div>
-                      <div style={{ fontSize: 15 }}>{s.name} <span style={{ color: C.brass, fontSize: 13 }}>{s.cost}G</span></div>
+                      <div style={{ fontSize: 15 }}>{s.name} <span style={{ color: C.brass, fontSize: 13 }}>{s.cost}G</span>
+                        {(g.siteCount[s.id] || 0) >= 7 && <span style={{ fontSize: 10, color: C.dim, marginLeft: 6 }}>馴染みの地</span>}
+                      </div>
                       <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>{s.desc}</div>
                       <div style={{ fontSize: 12, marginTop: 4 }}>{s.table.map(([m]) => <MatIcon key={m} id={m} fileImgs={fileImgs} emojiSize={12} style={{ marginRight: 5 }} />)}</div>
                     </div>
@@ -890,7 +942,7 @@ export default function BoneAndGlass() {
                   <div style={{ fontSize: 13 }}>{CAMPHOR.icon} 樟脳 <span style={{ fontSize: 11, color: C.dim }}>残り{g.camphor}晩</span>
                     <div style={{ fontSize: 11, color: C.dim, marginTop: 1 }}>{CAMPHOR.desc}</div>
                   </div>
-                  <Btn onClick={buyCamphor} disabled={g.gold < CAMPHOR.cost || g.camphor > CAMPHOR.max - CAMPHOR.nights}>{CAMPHOR.cost}G</Btn>
+                  <Btn onClick={buyCamphor} disabled={g.gold < CAMPHOR.cost || g.camphor > 0}>{CAMPHOR.cost}G</Btn>
                 </div>
               )}
             </Panel>
@@ -1117,6 +1169,7 @@ export default function BoneAndGlass() {
                         {l.line ? `「${l.line}」` : l.text}
                       </div>
                       {l.line2 && <div style={{ fontSize: 13, lineHeight: 1.9, color: C.ivory, marginTop: 6 }}>「{l.line2}」</div>}
+                      {l.line3 && <div style={{ fontSize: 13, lineHeight: 1.9, color: C.ivory, marginTop: 6 }}>「{l.line3}」</div>}
                       {l.sub && <div style={{ fontSize: 12, lineHeight: 1.8, color: C.dim, marginTop: 8 }}>{l.sub}</div>}
                     </div>
                   </div>
@@ -1459,6 +1512,19 @@ export default function BoneAndGlass() {
           </div>
         </div>
       </div>
+
+      {/* 焚き付けの確認ダイアログ */}
+      {burnConfirm && (
+        <div onClick={() => setBurnConfirm(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, zIndex: 65 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.red}`, borderRadius: 8, padding: 18, maxWidth: 320, width: "100%" }}>
+            <div style={{ fontSize: 14, lineHeight: 1.9, color: C.ivory, marginBottom: 16 }}>虫食いの品{wormCount}点を、竈にくべる。戻らない。</div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <Btn onClick={() => setBurnConfirm(false)}>やめる</Btn>
+              <Btn primary onClick={burnWorms}>くべる</Btn>
+            </div>
+          </div>
+        </div>
+      )}
 
       {toast && (
         <div style={{ position: "fixed", bottom: "calc(68px + env(safe-area-inset-bottom, 0px))", left: "50%", transform: "translateX(-50%)", background: C.panelHi, border: `1px solid ${C.brass}`, color: C.ivory, borderRadius: 6, padding: "8px 14px", fontSize: 13, zIndex: 60, maxWidth: "90%", boxShadow: "0 4px 18px rgba(0,0,0,0.5)" }}>

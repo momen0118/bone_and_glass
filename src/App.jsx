@@ -14,6 +14,7 @@ import {
   CUSTOMERS, COLLECTOR, OOYA, SHOP_BUYOUT, SETS, ALIASES, PRICE_MODES,
   GAKUSEI_KOUHAI_LINE, GAKUSEI_GRAD, SWAMP_UNLOCK, CAVE_UNLOCK, SPEC_LORE,
   WORM, isWorm, wormId, baseId, WORM_CATS, specOf, CAMPHOR, mushiDiscover, MUSHIYA,
+  moonPhase, MOON_OPEN, MOON_BOOST,
   RENT, RENT_INTERVAL, MAX_AP,
 } from "./data.js";
 import { storage } from "./storage.js";
@@ -189,8 +190,11 @@ function simulateNight(g) {
   const mode = PRICE_MODES[g.priceMode];
   const sets = activeSets(shelf, g.shelfSize);
 
-  // 来客数の上限は棚数に連動(棚6→最大8人、棚9→最大11人)
-  let visitors = Math.min(g.shelfSize + 2, 2 + Math.floor(g.rep / 8) + (g.decor.lamp ? 1 : 0) + (Math.random() < 0.5 ? 1 : 0));
+  // 来客数(月齢: 満月+2 / 新月-2。上限は棚数連動、新月の下限1)
+  const phase = moonPhase(g.day);
+  let visitors = 2 + Math.floor(g.rep / 8) + (g.decor.lamp ? 1 : 0) + (Math.random() < 0.5 ? 1 : 0)
+    + (phase === 4 ? 2 : 0) + (phase === 0 ? -2 : 0);
+  visitors = Math.min(g.shelfSize + 2, Math.max(phase === 0 ? 1 : 0, visitors));
   const aliasCat = g.alias;
   const pool = CUSTOMERS.filter((c) => g.rep >= c.minRep && (!c.flag || g[c.flag])).map((c) => {
     let w = c.weight;
@@ -453,6 +457,41 @@ function resizeImage(file, maxW, maxH, cb) {
 // ============================================================
 // 下部バーのボタン共通スタイル(折り返し禁止・狭い幅でも一行に収める)
 const FOOT_BTN = { fontSize: 12, padding: "8px 9px", whiteSpace: "nowrap" };
+
+// 月相アイコン: SVGで自前描画(象牙色の円+背景色の影で7相を表現)。
+// 画像 img/moon/{相番号}.png があればそれを pixelated で表示。効果の説明は一切なし
+const MoonIcon = ({ day, fileImgs, size = 14 }) => {
+  const phase = moonPhase(day);
+  const url = fileImgs && fileImgs.moon && fileImgs.moon[phase];
+  if (url) return <img src={url} alt="" width={size} height={size} style={{ imageRendering: "pixelated", display: "inline-block", verticalAlign: "middle" }} />;
+  const r = 45, cx = 50, cy = 50;
+  // 新月: 細い輪郭線だけの暗い円
+  if (phase === 0) return (
+    <svg width={size} height={size} viewBox="0 0 100 100" style={{ display: "inline-block", verticalAlign: "middle" }}>
+      <circle cx={cx} cy={cy} r={r} fill={C.bg} stroke={C.ivory} strokeOpacity="0.5" strokeWidth="3" />
+    </svg>
+  );
+  // 満月: 象牙色の全円
+  if (phase === 4) return (
+    <svg width={size} height={size} viewBox="0 0 100 100" style={{ display: "inline-block", verticalAlign: "middle" }}>
+      <circle cx={cx} cy={cy} r={r} fill={C.ivory} />
+    </svg>
+  );
+  // 三日月・上弦・十三夜=満ちる(右が明るい)/ 下弦・有明=欠ける(左が明るい)
+  const waxing = phase <= 3;
+  const f = phase === 2 || phase === 5 ? 0.5 : (phase === 1 || phase === 6 ? 0.25 : 0.75);
+  const rx = Math.abs(r * Math.cos(Math.PI * f)).toFixed(2);
+  const outerSweep = waxing ? 1 : 0;
+  // 三日月/有明(f<0.5)は終端線が明部側へ膨らみ細い弧に、十三夜/下弦(f>0.5)は暗部側へ膨らむ
+  const innerSweep = waxing ? (f < 0.5 ? 0 : 1) : (f < 0.5 ? 1 : 0);
+  const d = `M${cx},${cy - r} A${r},${r} 0 0,${outerSweep} ${cx},${cy + r} A${rx},${r} 0 0,${innerSweep} ${cx},${cy - r} Z`;
+  return (
+    <svg width={size} height={size} viewBox="0 0 100 100" style={{ display: "inline-block", verticalAlign: "middle" }}>
+      <circle cx={cx} cy={cy} r={r} fill={C.bg} stroke={C.line} strokeWidth="1" />
+      <path d={d} fill={C.ivory} />
+    </svg>
+  );
+};
 const Panel = ({ children, style }) => (
   <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6, padding: 12, ...style }}>{children}</div>
 );
@@ -596,8 +635,14 @@ export default function BoneAndGlass() {
     // 通常は2個。馴染みの地(この採集地への依頼が8回目以降)は35%で3個目が付く(表示・通知なし)
     const nth = (g.siteCount[site.id] || 0) + 1;
     const amount = 2 + (nth >= 8 && Math.random() < 0.35 ? 1 : 0);
+    // 満月の晩の採集は特定素材の抽選重みを2倍(海月・蛾・夜光苔・梟・蝙蝠。表示・通知なし)
+    let table = site.table;
+    if (moonPhase(g.day) === 4 && MOON_BOOST[site.id]) {
+      const boost = MOON_BOOST[site.id];
+      table = site.table.map(([m, w]) => [m, boost.includes(m) ? w * 2 : w]);
+    }
     const got = {};
-    for (let i = 0; i < amount; i++) { const m = weightedPick(site.table); got[m] = (got[m] || 0) + 1; }
+    for (let i = 0; i < amount; i++) { const m = weightedPick(table); got[m] = (got[m] || 0) + 1; }
     const inv = { ...g.inv };
     Object.entries(got).forEach(([k, v]) => (inv[k] = (inv[k] || 0) + v));
     const siteCount = { ...g.siteCount, [site.id]: nth };
@@ -740,8 +785,10 @@ export default function BoneAndGlass() {
     } else if (choice === "high") {
       // ふっかけ成功率: 高額品ほど通りにくく、信頼が良好だと通りやすい(上限0.85)
       const trust = g.trust || 0;
+      // 新月の晩のみ、ふっかけ成功率+15%(隠しパラメータ。表示しない)
+      const newMoonBonus = moonPhase(g.day) === 0 ? 0.15 : 0;
       const highChance = Math.min(0.85,
-        Math.max(0.35, Math.min(0.70, 0.75 - base / 2000)) + Math.max(0, trust) * 0.04);
+        Math.max(0.35, Math.min(0.70, 0.75 - base / 2000)) + Math.max(0, trust) * 0.04 + newMoonBonus);
       if (Math.random() < highChance) {
         const st = removeItem(g);
         setG({ ...st, gold: st.gold + high, rep: st.rep + 2, nightEarn: st.nightEarn + high, totalEarn: st.totalEarn + high, totalSold: st.totalSold + 1,
@@ -836,6 +883,7 @@ export default function BoneAndGlass() {
   // カード送り中の売上累計(表示済みカードまで)
   const nightEarnSoFar = nightCust.slice(0, nightView.idx + 1)
     .filter((l) => l.t === "sale").reduce((s, l) => s + (l.price || 0), 0);
+  const moonOpenLine = MOON_OPEN[moonPhase(g.day)]; // 満月/新月の晩の開店一言(他の相は空)
   const nightAdvance = () => setNightView((v) => ({ ...v, idx: v.idx + 1 }));
   const nightCollapse = () => setNightView((v) => ({ ...v, collapsed: true }));
   // 現行の一覧ログ形式(まとめ表示・サマリで使う)
@@ -871,7 +919,7 @@ export default function BoneAndGlass() {
             {aliasCat && (
               <div style={{ fontSize: 10, letterSpacing: "0.15em", color: C.brass, whiteSpace: "nowrap" }}>人呼んで『{ALIASES[aliasCat].name}』</div>
             )}
-            <div style={{ fontSize: 16, letterSpacing: "0.1em", whiteSpace: "nowrap" }}>{g.day}日目 <span style={{ color: C.brass }}>{PHASE_LABEL[g.phase]}</span></div>
+            <div style={{ fontSize: 16, letterSpacing: "0.1em", whiteSpace: "nowrap" }}>{g.day}日目 <MoonIcon day={g.day} fileImgs={fileImgs} size={14} /> <span style={{ color: C.brass }}>{PHASE_LABEL[g.phase]}</span></div>
           </div>
           <div style={{ textAlign: "right", fontSize: 13 }}>
             <div style={{ color: g.gold < 0 ? C.red : C.brass, fontVariantNumeric: "tabular-nums" }}>{g.gold} G{g.gold < 0 ? "(借金)" : ""}</div>
@@ -1154,6 +1202,10 @@ export default function BoneAndGlass() {
         )}
 
         {/* ===== 夜 ===== */}
+        {/* 満月・新月の晩の開店一言(夜画面の冒頭・地の文) */}
+        {g.phase === "night" && moonOpenLine && (
+          <div style={{ fontSize: 12, color: C.dim, lineHeight: 1.8, marginBottom: 10, textAlign: "center", letterSpacing: "0.05em" }}>{moonOpenLine}</div>
+        )}
         {g.phase === "night" && nightInCards && (() => {
           const l = nightCust[nightView.idx];
           const cust = CUSTOMERS.find((c) => c.id === l.cid);

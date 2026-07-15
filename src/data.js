@@ -134,6 +134,15 @@ export const MUSHIYA = {
   firstNone: "食われた品は、しまい込まずに並べておくことだ。私のような者が、買いに来る",
 };
 
+// ---------- 月齢(14日周期・7相。各相2晩。1日目=三日月、満月は7〜8日目) ----------
+export const MOON_PHASES = ["新月", "三日月", "上弦", "十三夜", "満月", "下弦", "有明"];
+// 相番号: 0新月 1三日月 2上弦 3十三夜 4満月 5下弦 6有明。日数から決定的に算出(保存不要)
+export const moonPhase = (day) => (Math.floor((day - 1) / 2) + 1) % 7;
+// 開店時の一言(両端の相のみ。他の相は何も出さない)
+export const MOON_OPEN = { 4: "月が明るい。往来に人の影が多い。", 0: "月のない晩だ。通りは静かで、暗い。" };
+// 満月の晩に活性化する採集(採集地 → 抽選重みを2倍にする素材)
+export const MOON_BOOST = { umibe: ["kurage"], shitsugen: ["ga", "hikarigoke", "fukurou"], doukutsu: ["koumori"] };
+
 // ---------- 処理法 ----------
 export const PROCESSES = {
   boil:     { name: "煮沸洗浄", desc: "亡骸を煮て、骨だけを取り出す" },

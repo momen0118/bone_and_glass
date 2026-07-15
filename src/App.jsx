@@ -13,6 +13,7 @@ import {
   SITES, SUPPLY_SHOP, SHELF_EXPAND, DECOR,
   CUSTOMERS, COLLECTOR, OOYA, SHOP_BUYOUT, SETS, ALIASES, PRICE_MODES,
   GAKUSEI_KOUHAI_LINE, GAKUSEI_GRAD, SWAMP_UNLOCK, CAVE_UNLOCK, SPEC_LORE,
+  WORM, isWorm, wormId, baseId, WORM_CATS, specOf, CAMPHOR, mushiDiscover, MUSHIYA,
   RENT, RENT_INTERVAL, MAX_AP,
 } from "./data.js";
 import { storage } from "./storage.js";
@@ -27,8 +28,8 @@ function weightedPick(pairs) {
   for (const [v, w] of pairs) { r -= w; if (r <= 0) return v; }
   return pairs[pairs.length - 1][0];
 }
-const itemName = (id) => (SPECIMENS[id] ? SPECIMENS[id].name : MATERIALS[id].name);
-const itemIcon = (id) => (SPECIMENS[id] ? SPECIMENS[id].icon : MATERIALS[id].icon);
+const itemName = (id) => (specOf(id) ? specOf(id).name : MATERIALS[id].name);
+const itemIcon = (id) => (specOf(id) ? specOf(id).icon : MATERIALS[id].icon);
 const round5 = (n) => Math.round(n / 5) * 5;
 
 function newGame() {
@@ -55,6 +56,10 @@ function newGame() {
     gakuseiGraduated: false, // 学生の就職イベント(一度きり)
     swampUnlocked: false,    // 霧の湿原(老学者への累計販売で解禁)
     caveUnlocked: false, gatherCount: 0, // 石灰洞窟(森・入り江への依頼の累計で解禁)
+    camphor: 0, // 樟脳の残晩数
+    mushiFirstDone: false,  // 初回虫食いイベント消化=樟脳解禁
+    mushiFirstNight: false, // 初回イベント: 虫湧き済みで蟲屋の来店待ち
+    mushiMorning: null,     // 翌朝に見せる虫食い発見文
   };
 }
 const clampTrust = (t) => Math.max(-6, Math.min(6, t));
@@ -86,22 +91,26 @@ function migrate(loaded) {
   g.swampUnlocked = loaded.swampUnlocked !== undefined ? !!loaded.swampUnlocked : (loaded.rep || 0) >= 10;
   g.caveUnlocked = loaded.caveUnlocked !== undefined ? !!loaded.caveUnlocked : true;
   g.gatherCount = loaded.gatherCount || 0;
+  g.camphor = loaded.camphor || 0;
+  g.mushiFirstDone = !!loaded.mushiFirstDone;
+  g.mushiFirstNight = !!loaded.mushiFirstNight;
+  g.mushiMorning = loaded.mushiMorning || null;
   return g;
 }
 
 // ---------- 棚まわりの計算 ----------
 function adjBonus(shelf, i, size) {
-  const me = shelf[i]; if (!me) return false;
+  const me = shelf[i]; if (!me || isWorm(me)) return false; // 虫食い品は隣接ボーナス対象外
   const row = Math.floor(i / 3), col = i % 3;
   const neigh = [];
   if (col > 0) neigh.push(row * 3 + col - 1);
   if (col < 2) neigh.push(row * 3 + col + 1);
   if (row > 0) neigh.push((row - 1) * 3 + col);
   if (row < 2) neigh.push((row + 1) * 3 + col);
-  return neigh.some((j) => j < size && shelf[j] && SPECIMENS[shelf[j]].cat === SPECIMENS[me].cat);
+  return neigh.some((j) => j < size && shelf[j] && !isWorm(shelf[j]) && SPECIMENS[shelf[j]].cat === SPECIMENS[me].cat);
 }
 function activeSets(shelf, size) {
-  const ids = shelf.slice(0, size).filter(Boolean);
+  const ids = shelf.slice(0, size).filter((x) => x && !isWorm(x)); // 虫食い品は銘板対象外
   const res = [];
   for (const s of SETS) {
     if (s.groups) {
@@ -119,17 +128,19 @@ function activeSets(shelf, size) {
   }
   return res;
 }
-// 基準価(熟練Lv3・天鵞絨込み、棚補正なし)
+// 基準価(熟練Lv3・天鵞絨込み、棚補正なし)。虫食い品は元の50%(補正なし)
 function basePrice(g, specId) {
+  if (isWorm(specId)) return SPECIMENS[baseId(specId)].price * 0.5;
   let p = SPECIMENS[specId].price;
   const proc = SPEC_PROC[specId];
   if (proc && procLevel(g.procExp[proc] || 0) >= 3) p *= 1.10;
   if (g.decor.velvet && SPECIMENS[specId].tags.includes("fancy")) p *= 1.10;
   return p;
 }
-// 棚上の売価(値付け・隣接・銘板込み)
+// 棚上の売価(値付け・隣接・銘板込み)。虫食い品は補正なしの基準価(蟲屋のみが買う)
 function shelfPrice(g, i, sets) {
   const id = g.shelf[i]; if (!id) return 0;
+  if (isWorm(id)) return round5(basePrice(g, id));
   let p = basePrice(g, id) * PRICE_MODES[g.priceMode].mult;
   if (adjBonus(g.shelf, i, g.shelfSize)) p *= 1.15;
   if (sets && sets.some((s) => s.members.includes(id))) p *= 1.20;
@@ -170,6 +181,7 @@ function simulateNight(g) {
   const log = [];
   let gold = 0, rep = 0, sold = 0;
   const shelf = [...g.shelf];
+  const spec = { ...g.spec };
   const soldByCat = { ...g.soldByCat };
   const custBought = { ...g.custBought };
   const mode = PRICE_MODES[g.priceMode];
@@ -188,6 +200,7 @@ function simulateNight(g) {
     return [c, w];
   });
   let graduated = g.gakuseiGraduated;
+  let graduatedTonight = false; // 就職イベントが起きた夜は学生を再抽選しない
 
   const priceAt = (i) => {
     let p = basePrice(g, shelf[i]) * mode.mult;
@@ -198,12 +211,16 @@ function simulateNight(g) {
 
   for (let v = 0; v < visitors; v++) {
     const c = weightedPick(pool);
+    // 就職イベントの起きた夜、以降の学生の抽選は無効にする(再抽選しない=その枠は空振り)
+    if (c.id === "gakusei" && graduatedTonight) continue;
     const bought = custBought[c.id] || 0;
-    const slots = shelf.map((id, i) => ({ id, i })).filter((s) => s.id && s.i < g.shelfSize);
+    // 通常客は虫食い品を一切見ない(棚の虫食いは対象外)
+    const slots = shelf.map((id, i) => ({ id, i })).filter((s) => s.id && !isWorm(s.id) && s.i < g.shelfSize);
     // 学生の就職イベント: 累計販売が閾値に達した後、棚に商品が1点以上ある夜の来店を置き換える。
     // 棚で最も表示価格の高い品を予算無視で購入する(一度きり。棚が空の夜は持ち越し)
     if (c.id === "gakusei" && !graduated && (custBought.gakusei || 0) >= GAKUSEI_GRAD.threshold && slots.length) {
       graduated = true;
+      graduatedTonight = true;
       let target = slots[0];
       for (const s of slots) if (priceAt(s.i) > priceAt(target.i)) target = s;
       const price = priceAt(target.i);
@@ -215,7 +232,7 @@ function simulateNight(g) {
       custBought.gakusei = 0; // 後輩に代替わり(この購入は数に残さない)
       log.push({
         t: "sale", cid: "gakusei", big: true, grad: true,
-        line: GAKUSEI_GRAD.line, line2: GAKUSEI_GRAD.line2,
+        line: GAKUSEI_GRAD.line, line2: GAKUSEI_GRAD.line2, sub: GAKUSEI_GRAD.sub,
         itemId: target.id, price,
         text: `学生「${GAKUSEI_GRAD.line}」「${GAKUSEI_GRAD.line2}」— ${sp.icon} ${sp.name}を ${price}G で購入。`,
       });
@@ -255,6 +272,74 @@ function simulateNight(g) {
     }
   }
   if (!visitors) log.push({ t: "misc", text: "今夜は誰も来なかった。硝子が静かに光っている。" });
+
+  // ---- 樟脳・虫湧き・蟲屋 ----
+  let camphor = g.camphor || 0;
+  let mushiFirstDone = g.mushiFirstDone;
+  let mushiFirstNight = g.mushiFirstNight;
+  let mushiMorning = null; // 翌朝に見せる発見文
+  let mushiyaVisit = false; // この夜、蟲屋が来るか
+  const firstMushiya = !g.mushiFirstDone; // この夜の蟲屋が初回イベントのものか
+  // 倉庫の乾燥系(骨格・昆虫・工芸)の通常標本
+  const dryList = () => Object.keys(spec).filter((k) => !isWorm(k) && spec[k] > 0 && WORM_CATS.includes(SPECIMENS[k].cat));
+  const dryCount = () => dryList().reduce((n, k) => n + spec[k], 0);
+  const spawnWorm = () => {
+    const bag = [];
+    dryList().forEach((k) => { for (let i = 0; i < spec[k]; i++) bag.push(k); });
+    if (!bag.length) return null;
+    const victim = pick(bag);
+    spec[victim] -= 1; if (spec[victim] <= 0) delete spec[victim];
+    const w = wormId(victim);
+    spec[w] = (spec[w] || 0) + 1;
+    return SPECIMENS[victim].name;
+  };
+
+  if (!mushiFirstDone) {
+    // 初回イベント(樟脳未解禁の間は通常判定を行わない)
+    if (mushiFirstNight) {
+      // 2夜目: 蟲屋が確定来店 → 翌朝から樟脳解禁
+      mushiyaVisit = true;
+      mushiFirstDone = true;
+      mushiFirstNight = false;
+    } else if (dryCount() >= 3) {
+      // 1夜目: 倉庫に乾燥系3点以上 → 確定で1品発生
+      const name = spawnWorm();
+      if (name) { mushiMorning = name; mushiFirstNight = true; }
+    }
+  } else {
+    // 通常運用
+    if (camphor >= 1) {
+      camphor -= 1; // 焚いている晩は湧かない(毎晩1消費)
+    } else {
+      const N = dryCount();
+      if (N > 0 && Math.random() < Math.min(N * 0.06, 0.6)) {
+        const name = spawnWorm();
+        if (name) mushiMorning = name;
+      }
+    }
+    // 通常の蟲屋: 虫食い品を1点以上所持(倉庫・棚問わず)していれば40%で来店(別枠)
+    const hasWorm = Object.keys(spec).some((k) => isWorm(k) && spec[k] > 0) || shelf.some((x) => x && isWorm(x));
+    if (hasWorm && Math.random() < 0.4) mushiyaVisit = true;
+  }
+
+  // 蟲屋の来店処理(来客上限とは別枠)
+  if (mushiyaVisit) {
+    const wormSlots = shelf.map((id, i) => ({ id, i })).filter((s) => s.id && isWorm(s.id) && s.i < g.shelfSize);
+    if (wormSlots.length) {
+      const t = pick(wormSlots);
+      const price = round5(basePrice(g, t.id) * 0.7); // 基準価(50%)の70%固定・評判/カウント不変
+      shelf[t.i] = null;
+      gold += price;
+      const line = pick(MUSHIYA.buy);
+      log.push({ t: "sale", cid: "mushiya", line, line2: firstMushiya ? MUSHIYA.firstLeave : null,
+        itemId: t.id, price,
+        text: `蟲屋「${line}」— ${specOf(t.id).name}を ${price}G で購入。${firstMushiya ? `\n蟲屋「${MUSHIYA.firstLeave}」` : ""}` });
+    } else {
+      // 棚に虫食いがない: 初回イベントは去り際のセリフ、通常はただの空振り
+      const line = firstMushiya ? MUSHIYA.firstLeave : MUSHIYA.empty;
+      log.push({ t: "misc", cid: "mushiya", line, text: `蟲屋「${line}」` });
+    }
+  }
 
   // 湿原の解禁(老学者への累計販売が閾値に達した夜、営業ログ末尾にイベント行)
   let swampUnlocked = g.swampUnlocked;
@@ -296,14 +381,15 @@ function simulateNight(g) {
     const trust = g.trust || 0;
     if (trust < 0) appearRate *= 1 + trust / 8;
     if (Math.random() < appearRate) {
-      const shelfRares = shelf.map((id, i) => ({ id, i })).filter((s) => s.id && s.i < g.shelfSize && SPECIMENS[s.id].tags.includes("rare"));
-      const stockRares = Object.keys(g.spec).filter((k) => g.spec[k] > 0 && SPECIMENS[k].tags.includes("rare"));
+      const shelfRares = shelf.map((id, i) => ({ id, i })).filter((s) => s.id && !isWorm(s.id) && s.i < g.shelfSize && SPECIMENS[s.id].tags.includes("rare"));
+      const stockRares = Object.keys(spec).filter((k) => !isWorm(k) && spec[k] > 0 && SPECIMENS[k].tags.includes("rare"));
       if (shelfRares.length) { const t = pick(shelfRares); offer = { specId: t.id, source: "shelf", slot: t.i }; }
       else if (stockRares.length) { offer = { specId: pick(stockRares), source: "stock" }; }
     }
   }
-  return { log, gold, rep, sold, rentLog, rentPaid, wageText, shelf, soldByCat, custBought, offer,
-    gakuseiGraduated: graduated, swampUnlocked };
+  return { log, gold, rep, sold, rentLog, rentPaid, wageText, shelf, spec, soldByCat, custBought, offer,
+    gakuseiGraduated: graduated, swampUnlocked,
+    camphor, mushiFirstDone, mushiFirstNight, mushiMorning };
 }
 
 // ---------- 画像 ----------
@@ -316,6 +402,7 @@ const IMG_SLOTS = [
   { id: "collector", name: "外套の蒐集家" },
   { id: "ooya",      name: "大家" },
   { id: "wakate",    name: "若い研究者" },
+  { id: "mushiya",   name: "蟲屋" },
 ];
 const ZOOMS = [1.0, 1.15, 1.35];
 function resizeImage(file, maxW, maxH, cb) {
@@ -360,6 +447,7 @@ const TagChip = ({ t }) => (
 const portraitFallback = (cid) =>
   cid === "collector" ? COLLECTOR.icon
   : cid === "ooya" ? OOYA.icon
+  : cid === "mushiya" ? MUSHIYA.icon
   : (CUSTOMERS.find((c) => c.id === cid) || {}).icon || "·";
 
 // 肖像: リポジトリ画像 → 画廊(アップロード) → 絵文字 の順
@@ -406,16 +494,18 @@ const MatIcon = ({ id, fileImgs, size = 32, emojiSize = 13, style }) => {
 // 標本の絵柄: リポジトリ画像があれば正方形・角丸で、なければ絵文字
 // 画像は角丸コンテナ内で specTrim() 倍に拡大し、外周の白フチ・署名を切り落とす
 const SpecIcon = ({ id, fileImgs, size = 20, emojiSize, style }) => {
-  const url = fileImgs && fileImgs.specimens && fileImgs.specimens[id];
+  const bid = baseId(id); // 虫食い品は元標本の絵柄で表示
+  const url = fileImgs && fileImgs.specimens && fileImgs.specimens[bid];
   if (url) return (
     <span style={{
       width: size, height: size, borderRadius: Math.max(3, Math.round(size * 0.14)),
-      overflow: "hidden", display: "inline-block", verticalAlign: "middle", flexShrink: 0, ...style,
+      overflow: "hidden", display: "inline-block", verticalAlign: "middle", flexShrink: 0,
+      ...(isWorm(id) ? { filter: "grayscale(0.4) brightness(0.85)", opacity: 0.9 } : null), ...style,
     }}>
-      <img src={url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", transform: `scale(${specTrim(id)})` }} />
+      <img src={url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", transform: `scale(${specTrim(bid)})` }} />
     </span>
   );
-  return <span style={{ fontSize: emojiSize || Math.round(size * 0.85), lineHeight: 1, ...style }}>{SPECIMENS[id].icon}</span>;
+  return <span style={{ fontSize: emojiSize || Math.round(size * 0.85), lineHeight: 1, ...(isWorm(id) ? { filter: "grayscale(0.4)", opacity: 0.85 } : null), ...style }}>{SPECIMENS[bid].icon}</span>;
 };
 
 // ============================================================
@@ -490,6 +580,11 @@ export default function BoneAndGlass() {
     if (g.gold < s.cost) return flash("お金が足りない");
     const inv = { ...g.inv }; inv[s.id] = (inv[s.id] || 0) + 1;
     setG({ ...g, gold: g.gold - s.cost, inv });
+  };
+  // 樟脳を買う(7晩分。最大14晩まで備蓄。買い足しは無駄が出ないよう残り7晩以下のときのみ)
+  const buyCamphor = () => {
+    if (g.gold < CAMPHOR.cost || g.camphor > CAMPHOR.max - CAMPHOR.nights) return;
+    setG({ ...g, gold: g.gold - CAMPHOR.cost, camphor: Math.min(CAMPHOR.max, g.camphor + CAMPHOR.nights) });
   };
   const expandShelf = () => {
     const next = g.shelfSize + 1, cost = SHELF_EXPAND[next];
@@ -568,7 +663,7 @@ export default function BoneAndGlass() {
       if (!aliasHistory.includes(newAlias)) aliasHistory = [...aliasHistory, newAlias];
     }
     setG({
-      ...g, phase: "night", shelf: res.shelf,
+      ...g, phase: "night", shelf: res.shelf, spec: res.spec,
       gold: g.gold + res.gold, rep: g.rep + res.rep,
       nightLog: log, nightEarn: res.gold, nightRent: res.rentLog ? res.rentLog.text : null,
       totalEarn: g.totalEarn + Math.max(0, res.gold), totalSold: g.totalSold + res.sold,
@@ -577,6 +672,8 @@ export default function BoneAndGlass() {
       offer: res.offer, offerResult: null,
       lastRent: res.rentPaid != null ? res.rentPaid : g.lastRent,
       gakuseiGraduated: res.gakuseiGraduated, swampUnlocked: res.swampUnlocked,
+      camphor: res.camphor, mushiFirstDone: res.mushiFirstDone,
+      mushiFirstNight: res.mushiFirstNight, mushiMorning: res.mushiMorning,
     });
     setNightView({ idx: 0, collapsed: false });
   };
@@ -659,7 +756,9 @@ export default function BoneAndGlass() {
       <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to bottom, rgba(20,17,13,0.3), rgba(20,17,13,0.92))" }} />
       <div style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "center", color: C.ivory }}>
         <div style={{ fontSize: 13, letterSpacing: "0.5em", color: C.dim, marginBottom: 8 }}>OS ET VITRUM</div>
-        <h1 style={{ fontSize: 34, fontWeight: 400, letterSpacing: "0.25em", margin: "0 0 6px" }}>骨と硝子の店</h1>
+        {fileImgs && fileImgs.logo
+          ? <img src={fileImgs.logo} alt="骨と硝子の店" style={{ width: "80%", maxWidth: 300, height: "auto", display: "block", margin: "0 0 6px" }} />
+          : <h1 style={{ fontSize: 34, fontWeight: 400, letterSpacing: "0.25em", margin: "0 0 6px" }}>骨と硝子の店</h1>}
         <div style={{ width: 180, height: 1, background: C.brass, margin: "14px 0 18px" }} />
         <p style={{ color: "#b3a586", fontSize: 13, textAlign: "center", lineHeight: 1.9, maxWidth: 340, margin: "0 0 28px" }}>
           亡骸と鉱石を仕入れ、標本に仕立て、<br />硝子の棚に並べて売る。
@@ -738,6 +837,12 @@ export default function BoneAndGlass() {
         {/* ===== 朝 ===== */}
         {g.phase === "morning" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {g.mushiMorning && (
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13, lineHeight: 1.8, color: C.red, borderLeft: `2px solid ${C.red}`, paddingLeft: 8 }}>
+                <span style={{ fontSize: 16 }}>🐛</span>
+                <span>{mushiDiscover(g.mushiMorning)}</span>
+              </div>
+            )}
             <Panel style={{ background: "transparent" }}>
               <div style={{ fontSize: 11, color: C.dim, marginBottom: 4 }}>倉庫</div>
               <div style={{ fontSize: 13, lineHeight: 1.9 }}>
@@ -780,6 +885,14 @@ export default function BoneAndGlass() {
                   </Btn>
                 ))}
               </div>
+              {g.mushiFirstDone && (
+                <div style={{ marginTop: 8, display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: `1px solid ${C.line}`, paddingTop: 8 }}>
+                  <div style={{ fontSize: 13 }}>{CAMPHOR.icon} 樟脳 <span style={{ fontSize: 11, color: C.dim }}>残り{g.camphor}晩</span>
+                    <div style={{ fontSize: 11, color: C.dim, marginTop: 1 }}>{CAMPHOR.desc}</div>
+                  </div>
+                  <Btn onClick={buyCamphor} disabled={g.gold < CAMPHOR.cost || g.camphor > CAMPHOR.max - CAMPHOR.nights}>{CAMPHOR.cost}G</Btn>
+                </div>
+              )}
             </Panel>
             {g.rep >= 20 && (
               <Panel>
@@ -920,7 +1033,7 @@ export default function BoneAndGlass() {
                       {id ? (
                         <>
                           <SpecIcon id={id} fileImgs={fileImgs} size={40} emojiSize={24} />
-                          <div style={{ fontSize: 10, textAlign: "center", lineHeight: 1.3 }}>{SPECIMENS[id].name}</div>
+                          <div style={{ fontSize: 10, textAlign: "center", lineHeight: 1.3, color: isWorm(id) ? C.dim : C.ivory }}>{specOf(id).name}</div>
                           <div style={{ fontSize: 11, color: inSet ? C.brass : bonus ? C.glass : C.brass, borderTop: `1px solid ${C.line}`, paddingTop: 2, width: "100%", textAlign: "center", fontVariantNumeric: "tabular-nums" }}>
                             {shelfPrice(g, i, curSets)}G{inSet ? " ✦" : bonus ? " ↑" : ""}
                           </div>
@@ -952,8 +1065,8 @@ export default function BoneAndGlass() {
                     const mk = nextMark(k);
                     return (
                       <Btn key={k} onClick={() => placeOnShelf(shelfPickFor, k)} style={{ fontSize: 12 }}>
-                        <SpecIcon id={k} fileImgs={fileImgs} size={18} emojiSize={13} /> {SPECIMENS[k].name} ×{v}
-                        {SPECIMENS[k].tags.map((t) => <TagChip key={t} t={t} />)}
+                        <SpecIcon id={k} fileImgs={fileImgs} size={18} emojiSize={13} /> {specOf(k).name} ×{v}
+                        {!isWorm(k) && SPECIMENS[k].tags.map((t) => <TagChip key={t} t={t} />)}
                         {mk && <span style={{ color: C.glass, marginLeft: 4 }}>{mk}</span>}
                       </Btn>
                     );
@@ -984,6 +1097,7 @@ export default function BoneAndGlass() {
         {g.phase === "night" && nightInCards && (() => {
           const l = nightCust[nightView.idx];
           const cust = CUSTOMERS.find((c) => c.id === l.cid);
+          const custName = cust ? cust.name : (l.cid === "mushiya" ? MUSHIYA.name : "");
           return (
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
@@ -998,17 +1112,18 @@ export default function BoneAndGlass() {
                   <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
                     <FramedPortrait cid={l.cid} imgs={imgs} fileImgs={fileImgs} />
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 15, letterSpacing: "0.1em", marginBottom: 6 }}>{cust ? cust.name : ""}</div>
+                      <div style={{ fontSize: 15, letterSpacing: "0.1em", marginBottom: 6 }}>{custName}</div>
                       <div style={{ fontSize: 13, lineHeight: 1.9, color: l.line ? C.ivory : C.dim }}>
                         {l.line ? `「${l.line}」` : l.text}
                       </div>
                       {l.line2 && <div style={{ fontSize: 13, lineHeight: 1.9, color: C.ivory, marginTop: 6 }}>「{l.line2}」</div>}
+                      {l.sub && <div style={{ fontSize: 12, lineHeight: 1.8, color: C.dim, marginTop: 8 }}>{l.sub}</div>}
                     </div>
                   </div>
                   {l.t === "sale" && (
                     <div style={{ marginTop: 10, borderTop: `1px solid ${l.grad ? "#e0b96a" : C.line}`, paddingTop: 8, display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
                       <SpecIcon id={l.itemId} fileImgs={fileImgs} size={26} emojiSize={16} />
-                      <span>{SPECIMENS[l.itemId].name}</span>
+                      <span>{specOf(l.itemId).name}</span>
                       <span style={{ marginLeft: "auto", color: l.grad ? "#e0b96a" : C.brass, fontVariantNumeric: "tabular-nums" }}>{l.price} G</span>
                     </div>
                   )}
@@ -1314,10 +1429,14 @@ export default function BoneAndGlass() {
       </div>
 
       {/* ===== 画面下端に固定する要素(ルート直下に置き、祖先スタイルの影響を受けないようにする) ===== */}
-      {/* 夜のカード送り中の売上累計チップ */}
+      {/* 夜のカード送り中の売上累計チップ(コンテンツ枠の右端に揃える。PCで右下隅に寄りすぎない) */}
       {g.phase === "night" && nightInCards && (
-        <div style={{ position: "fixed", right: 12, bottom: "calc(70px + env(safe-area-inset-bottom, 0px))", background: "rgba(31,26,19,0.95)", border: `1px solid ${C.brass}`, borderRadius: 4, padding: "5px 10px", fontSize: 12, color: C.brass, fontVariantNumeric: "tabular-nums", zIndex: 40 }}>
-          売上 {nightEarnSoFar} G
+        <div style={{ position: "fixed", left: 0, right: 0, bottom: "calc(70px + env(safe-area-inset-bottom, 0px))", zIndex: 40, pointerEvents: "none" }}>
+          <div style={{ maxWidth: 560, margin: "0 auto", padding: "0 12px", display: "flex", justifyContent: "flex-end" }}>
+            <div style={{ pointerEvents: "auto", background: "rgba(31,26,19,0.95)", border: `1px solid ${C.brass}`, borderRadius: 4, padding: "5px 10px", fontSize: 12, color: C.brass, fontVariantNumeric: "tabular-nums" }}>
+              売上 {nightEarnSoFar} G
+            </div>
+          </div>
         </div>
       )}
 
@@ -1328,7 +1447,7 @@ export default function BoneAndGlass() {
           <Btn onClick={() => setShowGallery(true)} style={FOOT_BTN}>画廊</Btn>
           <Btn onClick={() => setShowDecor(true)} style={FOOT_BTN}>調度屋</Btn>
           <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
-            {g.phase === "morning" && <Btn primary onClick={() => { setCaveEvent(null); setG({ ...g, phase: "workshop" }); }} style={FOOT_BTN}>工房へ →</Btn>}
+            {g.phase === "morning" && <Btn primary onClick={() => { setCaveEvent(null); setG({ ...g, phase: "workshop", mushiMorning: null }); }} style={FOOT_BTN}>工房へ →</Btn>}
             {g.phase === "workshop" && <Btn primary onClick={() => { setSel(null); setG({ ...g, phase: "shelf" }); }} style={FOOT_BTN}>陳列へ →</Btn>}
             {g.phase === "shelf" && (
               <>

@@ -103,6 +103,33 @@ export const SPEC_LORE = {
   s_kanikoura: "磨き上げれば武具の面のよう。存外、頑丈である。",
 };
 
+// ---------- 虫食い・樟脳・蟲屋 ----------
+// 虫食い品は元標本IDに接頭辞 "w_" を付けたIDで、通常の spec / shelf にそのまま格納する
+export const WORM = "w_";
+export const isWorm = (id) => typeof id === "string" && id.startsWith(WORM);
+export const wormId = (id) => WORM + id;
+export const baseId = (id) => (isWorm(id) ? id.slice(WORM.length) : id);
+// 乾燥系(骨格・昆虫・工芸)だけが食われる。液浸・鉱物は対象外
+export const WORM_CATS = ["bone", "insect", "craft"];
+// 標本の解決: 虫食い品は「虫食い◯◯」名・基準価50%・worm フラグ付き。通常品はそのまま
+export function specOf(id) {
+  if (isWorm(id)) {
+    const b = SPECIMENS[baseId(id)];
+    return b ? { ...b, name: "虫食い" + b.name, price: Math.round(b.price * 0.5), worm: true } : null;
+  }
+  return SPECIMENS[id];
+}
+// 樟脳(消耗品。倉庫で焚いて虫を防ぐ。晩数で管理し在庫には入れない)
+export const CAMPHOR = { cost: 60, nights: 7, max: 14, icon: "💠", desc: "倉庫で焚けば虫を寄せつけない(7晩)" };
+export const mushiDiscover = (name) => `倉庫の木箱から、小さな羽音がした。——${name}が虫に食われている。`;
+// 蟲屋(虫食い品だけを愛でる救済客)
+export const MUSHIYA = {
+  id: "mushiya", name: "蟲屋", icon: "🐛",
+  buy: ["穴の開き方に、味がある", "完品など、どこの店にもある", "虫の仕事もまた、自然の造形よ"],
+  empty: "……この穴は、ただの穴だ",
+  firstLeave: "……湧かせたくないなら、樟脳を焚くことだ。なに、私はどちらでも構わんが",
+};
+
 // ---------- 処理法 ----------
 export const PROCESSES = {
   boil:     { name: "煮沸洗浄", desc: "亡骸を煮て、骨だけを取り出す" },
@@ -237,6 +264,7 @@ export const GAKUSEI_GRAD = {
   threshold: 30, // 学生への累計販売がこの回数に達した後、次の来店で発生
   line: "就職しました。……約束、覚えてますか",
   line2: "初任給です。──一番いいものを、ください",
+  sub: "春から研究室に入るらしい。少しいい外套を着ていた。",
 };
 // 湿原の解禁(老学者への累計販売)
 export const SWAMP_UNLOCK = {

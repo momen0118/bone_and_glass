@@ -652,8 +652,11 @@ const Portrait = ({ cid, imgs, fileImgs, size = 34 }) => {
     </span>
   );
 };
-// 夜のカード用の大きな肖像。夜ログの小さいPortraitと同方式(円形切り抜き+真鍮枠)のスケールアップ版。
-// 画像が無ければ絵文字を大きく。画廊プレビュー・蒐集家・大家・蟲屋のカードもこれで統一する。
+// 夜のカード用の大きな肖像。銅版画のビネット様式: 縦楕円+縁ぼかし(硬い枠線は使わない)。
+// 楕円の輪郭に沿って mask-image の radial-gradient で背景へ溶かす。画像が無ければ絵文字を大きく。
+// 夜ログの小さいPortrait・画廊は現状(円形)のまま(小サイズではビネットが潰れるため)。
+// VIGNETTE: 中心(顔)は不透明、縁は透明へフェード。中心をやや上(42%)に置き頭頂の余白を確保。
+const VIGNETTE = "radial-gradient(ellipse 50% 50% at 50% 42%, #000 60%, rgba(0,0,0,0) 88%)";
 const FramedPortrait = ({ cid, imgs, fileImgs, width = "40%" }) => {
   const fileUrl = fileImgs && fileImgs.portraits && fileImgs.portraits[cid];
   const meta = imgs && imgs[cid];
@@ -662,9 +665,10 @@ const FramedPortrait = ({ cid, imgs, fileImgs, width = "40%" }) => {
   const zoom = fileUrl ? FILE_ZOOM.portrait : (meta && meta.zoom) || 1.15;
   return (
     <div style={{ width, flexShrink: 0 }}>
-      <div style={{ aspectRatio: "1 / 1", borderRadius: "50%", overflow: "hidden", border: `2px solid ${C.brass}`, background: "#171310", boxShadow: "0 2px 10px rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ aspectRatio: "4 / 5", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center",
+        WebkitMaskImage: VIGNETTE, maskImage: VIGNETTE }}>
         {src
-          ? <img src={src} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", transform: `scale(${zoom})`, filter: "sepia(0.3) contrast(1.05) brightness(0.98)" }} />
+          ? <img src={src} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center 40%", transform: `scale(${zoom})`, filter: "sepia(0.3) contrast(1.05) brightness(0.98)" }} />
           : <span style={{ fontSize: 52 }}>{fb}</span>}
       </div>
     </div>
@@ -1329,7 +1333,8 @@ export default function BoneAndGlass() {
                 <span>{ORDER_EXPIRED_LOG}</span>
               </div>
             )}
-            <Panel style={{ background: "transparent" }}>
+            {/* 倉庫: 角丸なし(スクエア)・枠線なし。Ivoryを薄く敷いて帳面の頁の淡い紙色に */}
+            <div style={{ background: "rgba(232,220,196,0.035)", padding: 12 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
                 <div style={{ fontSize: 11, color: C.dim }}>倉庫</div>
                 {wormCount > 0 && g.mushiFirstDone && (
@@ -1342,7 +1347,7 @@ export default function BoneAndGlass() {
               <div style={{ fontSize: 13, lineHeight: 1.9 }}>
                 {invEntries.length ? invEntries.map(([k, v]) => <span key={k} style={{ marginRight: 10, whiteSpace: "nowrap" }}><MatIcon id={k} fileImgs={fileImgs} emojiSize={13} />{itemName(k)}×{v}</span>) : <span style={{ color: C.dim }}>空っぽだ</span>}
               </div>
-            </Panel>
+            </div>
             {/* 特注: 未受領の手紙(倉庫の下) */}
             {g.letter && (() => {
               const cust = CUSTOMERS.find((c) => c.id === g.letter.client);
@@ -1597,44 +1602,57 @@ export default function BoneAndGlass() {
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <div style={{ fontSize: 12, color: C.dim }}>硝子棚に並べる。同じ分類を隣り合わせると値打ちが上がり、良い組み合わせには銘板が掲がる。</div>
 
-            <div style={{ background: "#171310", border: `2px solid ${C.line}`, borderRadius: 8, padding: 10 }}>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-                {g.shelf.map((id, i) => {
-                  if (i >= 9) return null;
-                  const locked = i >= g.shelfSize;
-                  if (locked && i >= Math.max(6, g.shelfSize)) {
-                    // 3行目はサイズが7以上のときだけ枠を見せる
-                    if (g.shelfSize <= 6 && i >= 6) return null;
-                  }
-                  if (locked) return (
-                    <div key={i} style={{ minHeight: 92, border: `1px dashed ${C.line}`, borderRadius: 5, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#5a4f3d" }}>増設で解放</div>
-                  );
-                  const bonus = adjBonus(g.shelf, i, g.shelfSize);
-                  const inSet = curSets.some((s) => s.members.includes(id));
-                  return (
-                    <button key={i} onClick={() => setShelfPickFor(shelfPickFor === i ? null : i)}
-                      style={{
-                        fontFamily: "inherit", cursor: "pointer", minHeight: 92,
-                        background: shelfPickFor === i ? "#2e2618" : "rgba(127,160,122,0.06)",
-                        border: `1px solid ${shelfPickFor === i ? C.brass : inSet ? C.brass : "rgba(127,160,122,0.35)"}`,
-                        borderRadius: 5, color: C.ivory, padding: 6,
-                        display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3,
-                      }}>
-                      {id ? (
-                        <>
-                          <SpecIcon id={id} fileImgs={fileImgs} size={40} emojiSize={24} />
-                          <div style={{ fontSize: 10, textAlign: "center", lineHeight: 1.3, color: isWorm(id) ? C.dim : C.ivory }}>{specOf(id).name}</div>
-                          <div style={{ fontSize: 11, color: inSet ? C.brass : bonus ? C.glass : C.brass, borderTop: `1px solid ${C.line}`, paddingTop: 2, width: "100%", textAlign: "center", fontVariantNumeric: "tabular-nums" }}>
-                            {shelfPrice(g, i, curSets)}G{inSet ? " ✦" : bonus ? " ↑" : ""}
-                          </div>
-                        </>
-                      ) : (
-                        <div style={{ fontSize: 11, color: C.dim }}>空き棚</div>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
+            {/* 硝子棚: 各段の下に一枚の硝子板(skewで奥行き)を敷き、品物が板の上に立つ。面はスクエア */}
+            <div style={{ background: "#171310", border: `1px solid ${C.line}`, padding: "14px 12px 6px" }}>
+              {[0, 1, 2].map((row) => {
+                // 3段目(6〜8枠)はサイズ7以上のときだけ下に生える
+                if (row === 2 && g.shelfSize <= 6) return null;
+                const idxs = [row * 3, row * 3 + 1, row * 3 + 2];
+                return (
+                  <div key={row} style={{ marginBottom: 12 }}>
+                    {/* 品物(硝子板の上に立つ。底=足元を板の上辺に接地) */}
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", alignItems: "end" }}>
+                      {idxs.map((i) => {
+                        const id = g.shelf[i];
+                        const locked = i >= g.shelfSize;
+                        if (locked) return (
+                          <div key={i} style={{ minHeight: 94, display: "flex", alignItems: "flex-end", justifyContent: "center", paddingBottom: 6, fontSize: 10, color: "#5a4f3d" }}>増設で解放</div>
+                        );
+                        const bonus = adjBonus(g.shelf, i, g.shelfSize);
+                        const inSet = curSets.some((s) => s.members.includes(id));
+                        const sel = shelfPickFor === i;
+                        return (
+                          <button key={i} onClick={() => setShelfPickFor(sel ? null : i)}
+                            style={{
+                              fontFamily: "inherit", cursor: "pointer",
+                              background: sel ? "rgba(201,161,94,0.12)" : "transparent",
+                              border: "none", outline: sel ? `1px solid ${C.brass}` : "none",
+                              borderRadius: 6, color: C.ivory, padding: "6px 3px 2px", minHeight: 94,
+                              display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", gap: 3,
+                            }}>
+                            {id ? (
+                              <>
+                                <SpecIcon id={id} fileImgs={fileImgs} size={40} emojiSize={24} />
+                                <div style={{ fontSize: 10, textAlign: "center", lineHeight: 1.25, color: isWorm(id) ? C.dim : C.ivory }}>{specOf(id).name}</div>
+                                {/* 値札: 品物の足元、板の上に置かれた小札(スクエア) */}
+                                <div style={{ fontSize: 10.5, color: inSet ? C.brass : bonus ? C.glass : C.brass, background: "rgba(20,17,13,0.6)", padding: "1px 6px", fontVariantNumeric: "tabular-nums" }}>
+                                  {shelfPrice(g, i, curSets)}G{inSet ? " ✦" : bonus ? " ↑" : ""}
+                                </div>
+                              </>
+                            ) : (
+                              <div style={{ fontSize: 11, color: C.dim, paddingBottom: 4 }}>空き棚</div>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {/* 硝子板: 段の全幅を貫く一枚。上辺に硝子のハイライト、下に落ち影で奥行き */}
+                    <div style={{ height: 14, transform: "skewX(-10deg)",
+                      background: "linear-gradient(to bottom, rgba(127,160,122,0.22), rgba(127,160,122,0.05))",
+                      borderTop: "1.5px solid rgba(190,214,205,0.45)", boxShadow: "0 4px 7px rgba(0,0,0,0.4)" }} />
+                  </div>
+                );
+              })}
               {curSets.length > 0 && (
                 <div style={{ marginTop: 8, borderTop: `1px solid ${C.line}`, paddingTop: 6, display: "flex", flexWrap: "wrap", gap: 6 }}>
                   {curSets.map((s) => {

@@ -501,6 +501,29 @@ export const SETS = [
     desc: "水晶、紫水晶、晶洞。三つの石が灯りを返す棚は、夜空の棚である。" },
 ];
 
+// ---------- 銘板の噂ヒント ----------
+// 客がpass(買わずに帰る)したとき、8%でpassセリフの代わりに噂を落とす(一晩最大1回)。
+// その客に割り当てた銘板のうち未発見(knownSets外)のものがある時のみ。両方発見済みなら普通にpass。
+export const RUMORS = {
+  gakusha: [
+    { set: "set_bird",  line: "鳥を骨から羽まで揃えた店があったと聞いた。学者が通い詰めたそうだ" },
+    { set: "set_earth", line: "石と化石だけの棚には、億年が並ぶという" },
+  ],
+  koujika: [
+    { set: "set_snake", line: "同じ蛇を、骨と瓶で並べた店の話を知っているか。悪趣味で、粋だ" },
+    { set: "set_night", line: "夜に生きるものだけを集めた棚があるらしい。月のない晩に映えるそうだ" },
+  ],
+  kifujin: [
+    { set: "set_wing",   line: "蝶と甲虫を額で並べると、壁が庭になるらしいの" },
+    { set: "set_garden", line: "硝子の匣に緑を閉じた棚は、小さな庭に見えるんですって" },
+  ],
+  gakusei: [
+    { set: "set_aqua",  line: "先輩が言ってました。水のものばかり硝子に並べた棚は、店ごと沈んで見えるって" },
+    { set: "set_bones", line: "骨、骨、骨。並べ切った店主がいたらしいっすよ。豪気だなあ" },
+  ],
+};
+export const RUMOR_CHANCE = 0.08; // passした客が噂を落とす確率
+
 // ---------- 通り名 ----------
 export const ALIASES = {
   bone:    { name: "骸骨堂", invite: ["gakusha"] },
@@ -517,6 +540,15 @@ export const PRICE_MODES = {
 };
 
 export const RENT = 100, RENT_INTERVAL = 7, MAX_AP = 3;
+
+// OP(はじまりの朝)。新規開始時のみ。img=画像+地の文(月独白様式)/ narr=地の文のみ。
+// タップ送り・各枚フェード・スキップなし。最終枚のタップで1日目の朝へ。
+// 画像が無ければその枚は文字のみ(フォールバック)。
+export const OP = [
+  { img: "kotori", text: "開店の朝、店の前に小鳥が落ちていた。" },
+  { text: "拾った。……これも何かの縁だろう。" },
+  { text: "骨と硝子の店、開店の日である。" },
+];
 
 // 見習いの押しかけイベント(評判20到達の翌朝・一度だけ)
 export const APPRENTICE_INTRO = "戸口に、そわそわした若者が立っている。「あの……働かせてもらえませんか。手先には、自信があります」";

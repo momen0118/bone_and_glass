@@ -18,7 +18,7 @@ import {
   ORDER_UNLOCK_REP, ORDER_CHANCE, ORDER_REWARD_MULT, ORDER_EXPIRED_LOG, ORDER_DECLINE,
   ORDER_CLIENTS, ORDER_FILTER, ORDER_LETTERS, ORDER_SITE_GATE, ORDER_RARE,
   BUYOUT_CELEBRATE, SCENES, OOYA_ORDER,
-  APPRENTICE_INTRO, MONTH_REMARKS,
+  APPRENTICE_INTRO, MONTH_REMARKS, RUMORS, RUMOR_CHANCE, OP,
   RENT, RENT_INTERVAL, MAX_AP,
 } from "./data.js";
 import { storage } from "./storage.js";
@@ -281,6 +281,7 @@ function simulateNight(g) {
   let graduated = g.gakuseiGraduated;
   let graduatedTonight = false; // 就職イベントが起きた夜は学生を再抽選しない
   const celebrated = { ...g.celebrated }; // 買い取りの祝いセリフ(客層ごと1回)
+  let rumorGiven = false; // 銘板の噂は一晩最大1回
 
   const priceAt = (i) => {
     let p = basePrice(g, shelf[i]) * mode.mult;
@@ -330,6 +331,16 @@ function simulateNight(g) {
       const line = opts.celebrateLine || (big ? custLine(c, bought, "big") : custLine(c, bought, "buy"));
       log.push({ t: "sale", cid: c.id, big, text: `${c.name}「${line}」— ${sp.icon} ${sp.name}を ${price}G で購入。`, line, itemId: target.id, price, ...(opts.tag || {}) });
       return { bought: true };
+    }
+    // 銘板の噂: passした客が、担当銘板のうち未発見のものがあれば 8% で噂を落とす(一晩1回)
+    if (!rumorGiven) {
+      const undiscovered = (RUMORS[c.id] || []).filter((r) => !g.knownSets.includes(r.set));
+      if (undiscovered.length && Math.random() < RUMOR_CHANCE) {
+        rumorGiven = true;
+        const r = pick(undiscovered);
+        log.push({ t: "misc", cid: c.id, text: `${c.name}「${r.line}」`, line: r.line, ...(opts.tag || {}) });
+        return { bought: false };
+      }
     }
     const line = custLine(c, bought, "pass");
     log.push({ t: "misc", cid: c.id, text: `${c.name}「${line}」`, line, ...(opts.tag || {}) });
@@ -658,6 +669,10 @@ const Portrait = ({ cid, imgs, fileImgs, size = 34 }) => {
 // 夜ログの小さいPortrait・画廊は現状(円形)のまま(小サイズではビネットが潰れるため)。
 // VIGNETTE: 完全表示域を広く取り(72%)、ぼかし帯を外周へ追い込む。頬から上に減光をかけない。
 const VIGNETTE = "radial-gradient(ellipse 50% 50% at 50% 47%, #000 72%, rgba(0,0,0,0) 92%)";
+// 「時間が流れる演出」だけに使う統一フェード(静かなクロスフェード)。key変更で再生される。
+// 適用箇所: OPの各枚 / 月の独白の一拍 / 閉店後の全面一拍 / 全面演出(買い取り・大家来訪)の各行。
+// 通常のフェーズ遷移・カード送り・モーダルには使わない。
+const FADE = "bgFadeIn 0.75s ease";
 const FramedPortrait = ({ cid, imgs, fileImgs, width = "40%" }) => {
   const fileUrl = fileImgs && fileImgs.portraits && fileImgs.portraits[cid];
   const meta = imgs && imgs[cid];
@@ -744,8 +759,17 @@ export default function BoneAndGlass() {
   const [scene, setScene] = useState(null);
   // 大家の依頼カードの開閉(デフォルト折りたたみ)
   const [ooyaCardOpen, setOoyaCardOpen] = useState(false);
+  // OP(はじまりの朝)の表示ステップ(null=非表示 / 0〜=表示中。新規開始時のみ)
+  const [opStep, setOpStep] = useState(null);
 
   useEffect(() => {
+    // フェード用のキーフレームを一度だけ注入
+    if (!document.getElementById("bg-fade-kf")) {
+      const st = document.createElement("style");
+      st.id = "bg-fade-kf";
+      st.textContent = "@keyframes bgFadeIn{from{opacity:0}to{opacity:1}}";
+      document.head.appendChild(st);
+    }
     (async () => {
       try { const r = await storage.get(SAVE_KEY); if (r && r.value) setHasSave(true); } catch (e) {}
       try { const r = await storage.get(IMG_KEY); if (r && r.value) setImgs(JSON.parse(r.value)); } catch (e) {}
@@ -771,6 +795,7 @@ export default function BoneAndGlass() {
   const startNew = async () => {
     const ng = newGame(); setG(ng); setScreen("game");
     try { await storage.set(SAVE_KEY, JSON.stringify(ng)); } catch (e) {}
+    setOpStep(0); // 新規開始のみOP演出を挟む(続きからでは出さない)
   };
   const flash = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2400); };
 
@@ -1229,9 +1254,9 @@ export default function BoneAndGlass() {
   const moonBeatPanel = (text) => {
     const ph = moonPhase(g.day);
     const skyUrl = fileImgs && fileImgs.sky && (ph === 4 ? fileImgs.sky.full : ph === 0 ? fileImgs.sky.new : null);
-    if (!skyUrl) return <Panel>{nightBeatPanel(text)}</Panel>;
+    if (!skyUrl) return <Panel style={{ animation: FADE }}>{nightBeatPanel(text)}</Panel>;
     return (
-      <div style={{ border: `1px solid ${C.brass}`, borderRadius: 6, overflow: "hidden", background: C.panel, boxShadow: "0 0 14px rgba(201,161,94,0.12)" }}>
+      <div style={{ border: `1px solid ${C.brass}`, borderRadius: 6, overflow: "hidden", background: C.panel, boxShadow: "0 0 14px rgba(201,161,94,0.12)", animation: FADE }}>
         {/* 上部: 空画像を全幅背景で。cover+FILE_ZOOM.sky で外周の白フチ・黒台紙を枠外へ。角丸はカード枠に追従 */}
         <div style={{ aspectRatio: "16 / 9", overflow: "hidden", background: "#0e0b08" }}>
           <img src={skyUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", transform: `scale(${FILE_ZOOM.sky})` }} />
@@ -1742,9 +1767,10 @@ export default function BoneAndGlass() {
                 </>
               ) : (
                 <>
-                  <div onClick={nightAdvance} style={{ cursor: "pointer" }}>
+                  {/* 客カードは静止(key固定で再マウントさせない)。月/閉店後の一拍だけフェードで溶ける */}
+                  <div key={s.t === "cust" ? "cust" : s.t + nightView.idx} onClick={nightAdvance} style={{ cursor: "pointer" }}>
                     {s.t === "moon" ? moonBeatPanel(moonOpenLine)
-                      : s.t === "divider" ? <Panel>{nightBeatPanel("——閉店後。")}</Panel>
+                      : s.t === "divider" ? <Panel style={{ animation: FADE }}>{nightBeatPanel("——閉店後。")}</Panel>
                       : s.t === "month" ? monthPanel()
                       : nightCardPanel(s.l, s.l && s.l.line3 ? nightView.sub : 99)}
                   </div>
@@ -2120,7 +2146,7 @@ export default function BoneAndGlass() {
             <div style={{ width: "58%", maxWidth: 260 }}>
               <FramedPortrait cid="ooya" imgs={imgs} fileImgs={fileImgs} width="100%" />
             </div>
-            <div style={{ marginTop: 26, minHeight: 76, maxWidth: 340, textAlign: "center", fontSize: 14, lineHeight: 2.1, color: step.t === "line" ? C.ivory : C.dim }}>
+            <div key={buyoutStep} style={{ marginTop: 26, minHeight: 76, maxWidth: 340, textAlign: "center", fontSize: 14, lineHeight: 2.1, color: step.t === "line" ? C.ivory : C.dim, animation: FADE }}>
               {step.t === "line" ? `大家「${step.text}」` : step.text}
             </div>
             <div style={{ marginTop: 14, fontSize: 11, color: "#5a4f3d" }}>▼</div>
@@ -2138,10 +2164,40 @@ export default function BoneAndGlass() {
             <div style={{ width: "58%", maxWidth: 260 }}>
               <FramedPortrait cid={def.cid} imgs={imgs} fileImgs={fileImgs} width="100%" />
             </div>
-            <div style={{ marginTop: 26, minHeight: 92, maxWidth: 340, textAlign: "center", fontSize: 14, lineHeight: 2.1, color: seg.t === "line" ? C.ivory : C.dim, letterSpacing: seg.t === "beat" ? "0.08em" : "normal" }}>
+            <div key={scene.step} style={{ marginTop: 26, minHeight: 92, maxWidth: 340, textAlign: "center", fontSize: 14, lineHeight: 2.1, color: seg.t === "line" ? C.ivory : C.dim, letterSpacing: seg.t === "beat" ? "0.08em" : "normal", animation: FADE }}>
               {seg.t === "line" ? `${custName}「${seg.text}」` : seg.text}
             </div>
             <div style={{ marginTop: 14, fontSize: 11, color: "#5a4f3d" }}>▼</div>
+          </div>
+        );
+      })()}
+
+      {/* ===== OP(はじまりの朝)。新規開始のみ・タップ送り・各枚フェード ===== */}
+      {opStep !== null && OP[opStep] && (() => {
+        const sc = OP[opStep];
+        const imgUrl = sc.img && fileImgs && fileImgs.op && fileImgs.op[sc.img];
+        const advance = () => setOpStep(opStep + 1 < OP.length ? opStep + 1 : null);
+        return (
+          <div onClick={advance} style={{ position: "fixed", inset: 0, background: "#0a0806", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 28, zIndex: 80, cursor: "pointer", fontFamily: "Georgia, 'Yu Mincho', serif" }}>
+            <div key={opStep} style={{ width: "100%", maxWidth: 400, animation: FADE }}>
+              {imgUrl ? (
+                // 画像+地の文(月の独白と同じ様式: カード内背景+下部に地の文)
+                <div style={{ border: `1px solid ${C.brass}`, borderRadius: 6, overflow: "hidden", background: C.panel, boxShadow: "0 0 14px rgba(201,161,94,0.12)" }}>
+                  <div style={{ aspectRatio: "16 / 9", overflow: "hidden", background: "#0e0b08" }}>
+                    <img src={imgUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", transform: `scale(${FILE_ZOOM.op})` }} />
+                  </div>
+                  <div style={{ padding: "16px 16px 18px", textAlign: "center" }}>
+                    <div style={{ fontSize: 14, color: C.dim, lineHeight: 2, letterSpacing: "0.08em" }}>{sc.text}</div>
+                  </div>
+                </div>
+              ) : (
+                // 地の文のみ(narr、または画像フォールバック)
+                <div style={{ minHeight: 160, display: "flex", alignItems: "center", justifyContent: "center", padding: "24px 16px" }}>
+                  <div style={{ fontSize: 15, color: C.dim, lineHeight: 2.1, textAlign: "center", letterSpacing: "0.08em" }}>{sc.text}</div>
+                </div>
+              )}
+            </div>
+            <div style={{ marginTop: 18, fontSize: 11, color: "#5a4f3d" }}>▼</div>
           </div>
         );
       })()}

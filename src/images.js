@@ -14,7 +14,7 @@ export const PORTRAIT_IDS = ["gakusei", "gakusha", "koujika", "kifujin", "collec
 // shop=1.1 はタイトル背景の拡大トリム(店内観の外周の紙フチを画面外へ出す)
 // site=1.1 は採集地カード背景の拡大トリム(背景画像の外周の紙フチをカード外へ出す)
 // sky=1.35 は月独白の空画像の拡大トリム(外周の白フチ・黒台紙を金枠の外へ出し、絵柄だけを収める)
-export const FILE_ZOOM = { portrait: 1.7, shop: 1.1, site: 1.1, sky: 1.35 };
+export const FILE_ZOOM = { portrait: 1.7, shop: 1.1, site: 1.1, sky: 1.35, op: 1.68 };
 
 // 額なし版の肖像(横長の銅版画・人物は上部で小さめ)を収めるための個別調整。
 // scale=拡大率 / oy=transform-origin の縦位置(%)。原点を人物より上に置き、拡大で下ろす。
@@ -61,7 +61,9 @@ const urlFor = (base) => FILES[`${base}.png`] || FILES[`${base}.jpg`] || null;
 export async function loadFileImages() {
   const result = { shop: urlFor("/img/shop"), logo: urlFor("/img/logo"), portraits: {}, specimens: {}, materials: {}, sites: {}, moon: {},
     // 月の独白の一拍で使う空の画像(満月=full / 新月=new)。未作成でも可(無ければ地の文のみ)
-    sky: { full: urlFor("/img/sky/full"), new: urlFor("/img/sky/new") } };
+    sky: { full: urlFor("/img/sky/full"), new: urlFor("/img/sky/new") },
+    // OP(はじまりの朝)の画像。未作成でも可(無ければその枚は文字のみ)
+    op: { kotori: urlFor("/img/op/kotori") } };
   for (let i = 0; i < 7; i++) {
     const u = urlFor(`/img/moon/${i}`); // 月相ドットの差し替え口(0新月〜4満月〜6有明)。未作成でも可
     if (u) result.moon[i] = u;

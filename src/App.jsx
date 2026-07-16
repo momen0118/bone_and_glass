@@ -18,7 +18,7 @@ import {
   ORDER_UNLOCK_REP, ORDER_CHANCE, ORDER_REWARD_MULT, ORDER_EXPIRED_LOG, ORDER_DECLINE,
   ORDER_CLIENTS, ORDER_FILTER, ORDER_LETTERS, ORDER_SITE_GATE, ORDER_RARE,
   BUYOUT_CELEBRATE, SCENES, OOYA_ORDER,
-  APPRENTICE_INTRO, MONTH_REMARKS, RUMORS, RUMOR_CHANCE,
+  APPRENTICE_INTRO, MONTH_REMARKS, RUMORS, RUMOR_CHANCE, OP,
   RENT, RENT_INTERVAL, MAX_AP,
 } from "./data.js";
 import { storage } from "./storage.js";
@@ -759,6 +759,8 @@ export default function BoneAndGlass() {
   const [scene, setScene] = useState(null);
   // 大家の依頼カードの開閉(デフォルト折りたたみ)
   const [ooyaCardOpen, setOoyaCardOpen] = useState(false);
+  // OP(はじまりの朝)の表示ステップ(null=非表示 / 0〜=表示中。新規開始時のみ)
+  const [opStep, setOpStep] = useState(null);
 
   useEffect(() => {
     // フェード用のキーフレームを一度だけ注入
@@ -793,6 +795,7 @@ export default function BoneAndGlass() {
   const startNew = async () => {
     const ng = newGame(); setG(ng); setScreen("game");
     try { await storage.set(SAVE_KEY, JSON.stringify(ng)); } catch (e) {}
+    setOpStep(0); // 新規開始のみOP演出を挟む(続きからでは出さない)
   };
   const flash = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2400); };
 
@@ -2165,6 +2168,36 @@ export default function BoneAndGlass() {
               {seg.t === "line" ? `${custName}「${seg.text}」` : seg.text}
             </div>
             <div style={{ marginTop: 14, fontSize: 11, color: "#5a4f3d" }}>▼</div>
+          </div>
+        );
+      })()}
+
+      {/* ===== OP(はじまりの朝)。新規開始のみ・タップ送り・各枚フェード ===== */}
+      {opStep !== null && OP[opStep] && (() => {
+        const sc = OP[opStep];
+        const imgUrl = sc.img && fileImgs && fileImgs.op && fileImgs.op[sc.img];
+        const advance = () => setOpStep(opStep + 1 < OP.length ? opStep + 1 : null);
+        return (
+          <div onClick={advance} style={{ position: "fixed", inset: 0, background: "#0a0806", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 28, zIndex: 80, cursor: "pointer", fontFamily: "Georgia, 'Yu Mincho', serif" }}>
+            <div key={opStep} style={{ width: "100%", maxWidth: 400, animation: FADE }}>
+              {imgUrl ? (
+                // 画像+地の文(月の独白と同じ様式: カード内背景+下部に地の文)
+                <div style={{ border: `1px solid ${C.brass}`, borderRadius: 6, overflow: "hidden", background: C.panel, boxShadow: "0 0 14px rgba(201,161,94,0.12)" }}>
+                  <div style={{ aspectRatio: "16 / 9", overflow: "hidden", background: "#0e0b08" }}>
+                    <img src={imgUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", transform: `scale(${FILE_ZOOM.op})` }} />
+                  </div>
+                  <div style={{ padding: "16px 16px 18px", textAlign: "center" }}>
+                    <div style={{ fontSize: 14, color: C.dim, lineHeight: 2, letterSpacing: "0.08em" }}>{sc.text}</div>
+                  </div>
+                </div>
+              ) : (
+                // 地の文のみ(narr、または画像フォールバック)
+                <div style={{ minHeight: 160, display: "flex", alignItems: "center", justifyContent: "center", padding: "24px 16px" }}>
+                  <div style={{ fontSize: 15, color: C.dim, lineHeight: 2.1, textAlign: "center", letterSpacing: "0.08em" }}>{sc.text}</div>
+                </div>
+              )}
+            </div>
+            <div style={{ marginTop: 18, fontSize: 11, color: "#5a4f3d" }}>▼</div>
           </div>
         );
       })()}

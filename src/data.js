@@ -317,6 +317,23 @@ export const ORDER_FILTER = {
   kifujin: (s) => s.tags.includes("fancy"),
   wakate:  (s) => s.cat === "bone" || s.tags.includes("scholar"),
 };
+// 品目の原材料が来る採集地の解禁フラグ。未解禁なら依頼プールから除外(作れない約束は届かない)。
+// mori・umibe 由来の品(記載なし)は常時可。
+export const ORDER_SITE_GATE = {
+  s_koumori: "caveUnlocked", s_hebibin: "caveUnlocked", s_hebikotsu: "caveUnlocked",
+  s_suisho: "caveUnlocked", s_ammo: "caveUnlocked",
+  s_kaerubin: "swampUnlocked", s_kaerukotsu: "swampUnlocked", s_tokagebin: "swampUnlocked",
+  s_ga: "swampUnlocked", s_gagaku: "swampUnlocked", s_fukuroukotsu: "swampUnlocked",
+  s_fukurouzen: "swampUnlocked", s_hikariterra: "swampUnlocked",
+};
+// レア素材由来の品は「長期・大口依頼」。納期を加算し報酬倍率を上書きする(明細には特別な注記をしない)
+export const ORDER_RARE = {
+  s_kuragebin:   { term: 4, mult: 1.6 }, // 海月(重み1)
+  s_fukuroukotsu:{ term: 4, mult: 1.6 }, // 梟(重み1)
+  s_fukurouzen:  { term: 4, mult: 1.6 },
+  s_hikariterra: { term: 2, mult: 1.5 }, // 夜光苔(重み2)
+  s_tokagebin:   { term: 2, mult: 1.5 }, // 蜥蜴(重み2)
+};
 // 手紙文面(全文。{item}のみ差し込み。数量・納期は本文に書かず明細に任せる)
 export const ORDER_LETTERS = {
   gakusei: [

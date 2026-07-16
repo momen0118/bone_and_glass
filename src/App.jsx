@@ -16,7 +16,7 @@ import {
   WORM, isWorm, wormId, baseId, WORM_CATS, specOf, CAMPHOR, mushiDiscover, MUSHIYA,
   moonPhase, MOON_OPEN, MOON_BOOST, ANA_ALIAS,
   ORDER_UNLOCK_REP, ORDER_CHANCE, ORDER_REWARD_MULT, ORDER_EXPIRED_LOG,
-  ORDER_CLIENTS, ORDER_FILTER, ORDER_LETTERS,
+  ORDER_CLIENTS, ORDER_FILTER, ORDER_LETTERS, ORDER_SITE_GATE, ORDER_RARE,
   RENT, RENT_INTERVAL, MAX_AP,
 } from "./data.js";
 import { storage } from "./storage.js";
@@ -127,14 +127,18 @@ function rollOrderLetter(g) {
   // 発見済みレシピの品(=作れると分かっている標本)
   const knownSpecs = [...new Set(RECIPES.filter((r) => g.known.includes(r.id)).map((r) => r.to))];
   const filt = ORDER_FILTER[client];
-  const pool = knownSpecs.filter((id) => SPECIMENS[id] && filt(SPECIMENS[id], basePrice(g, id)));
+  // 発見済み × 依頼人フィルタ × 採集地が解禁済み(未解禁の原材料の品は除外)
+  const pool = knownSpecs.filter((id) => SPECIMENS[id] && filt(SPECIMENS[id], basePrice(g, id))
+    && !(ORDER_SITE_GATE[id] && !g[ORDER_SITE_GATE[id]]));
   if (!pool.length) return null;
   const specId = pick(pool);
   const price = basePrice(g, specId);
   // 数量(基準価帯)。<150=2〜3 / 150〜250=1〜2 / 250超=1
   const qty = price < 150 ? 2 + rnd(2) : price <= 250 ? 1 + rnd(2) : 1;
-  const term = 3 + (qty - 1); // 納期(受領日を含まず翌日から起算)
-  const reward = round5(price * qty * ORDER_REWARD_MULT);
+  // レア素材由来は長期・大口依頼(納期加算・報酬倍率の上書き)。それ以外は通常
+  const rare = ORDER_RARE[specId];
+  const term = 3 + (qty - 1) + (rare ? rare.term : 0); // 納期(受領日を含まず翌日から起算)
+  const reward = round5(price * qty * (rare ? rare.mult : ORDER_REWARD_MULT));
   const li = rnd(ORDER_LETTERS[client].length);
   return { client, specId, qty, term, reward, li };
 }

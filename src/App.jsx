@@ -669,6 +669,10 @@ const Portrait = ({ cid, imgs, fileImgs, size = 34 }) => {
 // 夜ログの小さいPortrait・画廊は現状(円形)のまま(小サイズではビネットが潰れるため)。
 // VIGNETTE: 完全表示域を広く取り(72%)、ぼかし帯を外周へ追い込む。頬から上に減光をかけない。
 const VIGNETTE = "radial-gradient(ellipse 50% 50% at 50% 47%, #000 72%, rgba(0,0,0,0) 92%)";
+// 「時間が流れる演出」だけに使う統一フェード(静かなクロスフェード)。key変更で再生される。
+// 適用箇所: OPの各枚 / 月の独白の一拍 / 閉店後の全面一拍 / 全面演出(買い取り・大家来訪)の各行。
+// 通常のフェーズ遷移・カード送り・モーダルには使わない。
+const FADE = "bgFadeIn 0.75s ease";
 const FramedPortrait = ({ cid, imgs, fileImgs, width = "40%" }) => {
   const fileUrl = fileImgs && fileImgs.portraits && fileImgs.portraits[cid];
   const meta = imgs && imgs[cid];
@@ -757,6 +761,13 @@ export default function BoneAndGlass() {
   const [ooyaCardOpen, setOoyaCardOpen] = useState(false);
 
   useEffect(() => {
+    // フェード用のキーフレームを一度だけ注入
+    if (!document.getElementById("bg-fade-kf")) {
+      const st = document.createElement("style");
+      st.id = "bg-fade-kf";
+      st.textContent = "@keyframes bgFadeIn{from{opacity:0}to{opacity:1}}";
+      document.head.appendChild(st);
+    }
     (async () => {
       try { const r = await storage.get(SAVE_KEY); if (r && r.value) setHasSave(true); } catch (e) {}
       try { const r = await storage.get(IMG_KEY); if (r && r.value) setImgs(JSON.parse(r.value)); } catch (e) {}
@@ -1240,9 +1251,9 @@ export default function BoneAndGlass() {
   const moonBeatPanel = (text) => {
     const ph = moonPhase(g.day);
     const skyUrl = fileImgs && fileImgs.sky && (ph === 4 ? fileImgs.sky.full : ph === 0 ? fileImgs.sky.new : null);
-    if (!skyUrl) return <Panel>{nightBeatPanel(text)}</Panel>;
+    if (!skyUrl) return <Panel style={{ animation: FADE }}>{nightBeatPanel(text)}</Panel>;
     return (
-      <div style={{ border: `1px solid ${C.brass}`, borderRadius: 6, overflow: "hidden", background: C.panel, boxShadow: "0 0 14px rgba(201,161,94,0.12)" }}>
+      <div style={{ border: `1px solid ${C.brass}`, borderRadius: 6, overflow: "hidden", background: C.panel, boxShadow: "0 0 14px rgba(201,161,94,0.12)", animation: FADE }}>
         {/* 上部: 空画像を全幅背景で。cover+FILE_ZOOM.sky で外周の白フチ・黒台紙を枠外へ。角丸はカード枠に追従 */}
         <div style={{ aspectRatio: "16 / 9", overflow: "hidden", background: "#0e0b08" }}>
           <img src={skyUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", transform: `scale(${FILE_ZOOM.sky})` }} />
@@ -1753,9 +1764,10 @@ export default function BoneAndGlass() {
                 </>
               ) : (
                 <>
-                  <div onClick={nightAdvance} style={{ cursor: "pointer" }}>
+                  {/* 客カードは静止(key固定で再マウントさせない)。月/閉店後の一拍だけフェードで溶ける */}
+                  <div key={s.t === "cust" ? "cust" : s.t + nightView.idx} onClick={nightAdvance} style={{ cursor: "pointer" }}>
                     {s.t === "moon" ? moonBeatPanel(moonOpenLine)
-                      : s.t === "divider" ? <Panel>{nightBeatPanel("——閉店後。")}</Panel>
+                      : s.t === "divider" ? <Panel style={{ animation: FADE }}>{nightBeatPanel("——閉店後。")}</Panel>
                       : s.t === "month" ? monthPanel()
                       : nightCardPanel(s.l, s.l && s.l.line3 ? nightView.sub : 99)}
                   </div>
@@ -2131,7 +2143,7 @@ export default function BoneAndGlass() {
             <div style={{ width: "58%", maxWidth: 260 }}>
               <FramedPortrait cid="ooya" imgs={imgs} fileImgs={fileImgs} width="100%" />
             </div>
-            <div style={{ marginTop: 26, minHeight: 76, maxWidth: 340, textAlign: "center", fontSize: 14, lineHeight: 2.1, color: step.t === "line" ? C.ivory : C.dim }}>
+            <div key={buyoutStep} style={{ marginTop: 26, minHeight: 76, maxWidth: 340, textAlign: "center", fontSize: 14, lineHeight: 2.1, color: step.t === "line" ? C.ivory : C.dim, animation: FADE }}>
               {step.t === "line" ? `大家「${step.text}」` : step.text}
             </div>
             <div style={{ marginTop: 14, fontSize: 11, color: "#5a4f3d" }}>▼</div>
@@ -2149,7 +2161,7 @@ export default function BoneAndGlass() {
             <div style={{ width: "58%", maxWidth: 260 }}>
               <FramedPortrait cid={def.cid} imgs={imgs} fileImgs={fileImgs} width="100%" />
             </div>
-            <div style={{ marginTop: 26, minHeight: 92, maxWidth: 340, textAlign: "center", fontSize: 14, lineHeight: 2.1, color: seg.t === "line" ? C.ivory : C.dim, letterSpacing: seg.t === "beat" ? "0.08em" : "normal" }}>
+            <div key={scene.step} style={{ marginTop: 26, minHeight: 92, maxWidth: 340, textAlign: "center", fontSize: 14, lineHeight: 2.1, color: seg.t === "line" ? C.ivory : C.dim, letterSpacing: seg.t === "beat" ? "0.08em" : "normal", animation: FADE }}>
               {seg.t === "line" ? `${custName}「${seg.text}」` : seg.text}
             </div>
             <div style={{ marginTop: 14, fontSize: 11, color: "#5a4f3d" }}>▼</div>

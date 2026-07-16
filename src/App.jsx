@@ -662,6 +662,8 @@ export default function BoneAndGlass() {
   const [buyoutStep, setBuyoutStep] = useState(null);
   // 焚き付けの確認ダイアログ
   const [burnConfirm, setBurnConfirm] = useState(false);
+  // 特注の手紙を開いているか(羊皮紙面)
+  const [showLetter, setShowLetter] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -1184,6 +1186,12 @@ export default function BoneAndGlass() {
                 <span>{mushiDiscover(g.mushiMorning)}</span>
               </div>
             )}
+            {g.orderExpired && (
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13, lineHeight: 1.8, color: C.red, borderLeft: `2px solid ${C.red}`, paddingLeft: 8 }}>
+                <span style={{ fontSize: 15 }}>✉</span>
+                <span>{ORDER_EXPIRED_LOG}</span>
+              </div>
+            )}
             <Panel style={{ background: "transparent" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
                 <div style={{ fontSize: 11, color: C.dim }}>倉庫</div>
@@ -1198,6 +1206,43 @@ export default function BoneAndGlass() {
                 {invEntries.length ? invEntries.map(([k, v]) => <span key={k} style={{ marginRight: 10, whiteSpace: "nowrap" }}><MatIcon id={k} fileImgs={fileImgs} emojiSize={13} />{itemName(k)}×{v}</span>) : <span style={{ color: C.dim }}>空っぽだ</span>}
               </div>
             </Panel>
+            {/* 特注: 未受領の手紙(倉庫の下) */}
+            {g.letter && (() => {
+              const cust = CUSTOMERS.find((c) => c.id === g.letter.client);
+              return (
+                <div onClick={() => setShowLetter(true)} style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 8, borderTop: `1px solid ${C.line}`, borderBottom: `1px solid ${C.line}`, padding: "9px 2px", fontSize: 13, color: C.ivory }}>
+                  <span style={{ fontSize: 15 }}>✉</span>
+                  <span>{cust ? cust.name : ""}から手紙が届いている</span>
+                  <span style={{ marginLeft: "auto", fontSize: 11, color: C.dim }}>開く ▸</span>
+                </div>
+              );
+            })()}
+            {/* 特注: 受領済みの依頼カード(スクエア・罫線区切り) */}
+            {g.order && (() => {
+              const o = g.order;
+              const cust = CUSTOMERS.find((c) => c.id === o.client);
+              const have = g.spec[o.specId] || 0;
+              const ready = have >= o.qty;
+              const remain = o.dueDay - g.day;
+              return (
+                <div style={{ borderTop: `1px solid ${C.line}`, borderBottom: `1px solid ${C.line}`, padding: "10px 2px", display: "flex", flexDirection: "column", gap: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <Portrait cid={o.client} imgs={imgs} fileImgs={fileImgs} size={30} />
+                    <div style={{ fontSize: 13 }}>{cust ? cust.name : ""}の特注</div>
+                    <div style={{ marginLeft: "auto", fontSize: 11, color: remain <= 1 ? C.red : C.dim }}>納期 残り{remain}日</div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+                    <SpecIcon id={o.specId} fileImgs={fileImgs} size={26} emojiSize={16} />
+                    <span>{SPECIMENS[o.specId].name} × {o.qty}</span>
+                    <span style={{ marginLeft: "auto", color: C.brass }}>報酬 {o.reward}G</span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    {!ready && <span style={{ fontSize: 11, color: C.dim }}>倉庫に {have}/{o.qty}</span>}
+                    <Btn primary={ready} disabled={!ready} onClick={deliverOrder} style={{ marginLeft: "auto" }}>納品する</Btn>
+                  </div>
+                </div>
+              );
+            })()}
             <div style={{ fontSize: 12, color: C.dim, lineHeight: 1.8 }}>夜のうちに届いた依頼票に目を通す。今日はどこへ人をやろうか。</div>
             {caveEvent && (
               <div style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12, color: C.brass, lineHeight: 1.8, borderLeft: `2px solid ${C.brass}`, paddingLeft: 8 }}>
@@ -1794,6 +1839,34 @@ export default function BoneAndGlass() {
           </div>
         </div>
       )}
+
+      {/* 特注: 手紙(羊皮紙風の反転配色。ゲーム内で唯一の明色面) */}
+      {showLetter && g.letter && (() => {
+        const l = g.letter;
+        const body = ORDER_LETTERS[l.client][l.li].replace("{item}", SPECIMENS[l.specId].name);
+        const ink = C.panelHi, paper = C.ivory, rule = "rgba(42,35,24,0.25)";
+        return (
+          <div onClick={() => setShowLetter(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, zIndex: 66 }}>
+            <div onClick={(e) => e.stopPropagation()} style={{ background: paper, color: ink, maxWidth: 380, width: "100%", maxHeight: "84vh", overflowY: "auto", padding: "24px 20px", boxShadow: "0 8px 30px rgba(0,0,0,0.6)", fontFamily: "Georgia, 'Yu Mincho', serif" }}>
+              {/* 1. 手紙本文 */}
+              <div style={{ fontSize: 14, lineHeight: 2.05 }}>{body}</div>
+              {/* 2. 罫線 */}
+              <div style={{ borderTop: `1px solid ${rule}`, margin: "18px 0 12px" }} />
+              {/* 3. 明細(事務表記) */}
+              <div style={{ fontSize: 12.5, lineHeight: 2.0, color: "rgba(42,35,24,0.85)", letterSpacing: "0.02em" }}>
+                {SPECIMENS[l.specId].name} × {l.qty} / 納期 {l.term}日 / 報酬 {l.reward}G
+              </div>
+              {/* 4. ボタン */}
+              <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+                <button onClick={() => { declineOrder(); setShowLetter(false); }}
+                  style={{ fontFamily: "inherit", cursor: "pointer", flex: 1, background: "transparent", color: ink, border: `1px solid ${rule}`, borderRadius: 4, padding: "9px 0", fontSize: 14 }}>断る</button>
+                <button onClick={() => { acceptOrder(); setShowLetter(false); }}
+                  style={{ fontFamily: "inherit", cursor: "pointer", flex: 1, background: ink, color: paper, border: "none", borderRadius: 4, padding: "9px 0", fontSize: 14 }}>受ける</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {toast && (
         <div style={{ position: "fixed", bottom: "calc(68px + env(safe-area-inset-bottom, 0px))", left: "50%", transform: "translateX(-50%)", background: C.panelHi, border: `1px solid ${C.brass}`, color: C.ivory, borderRadius: 6, padding: "8px 14px", fontSize: 13, zIndex: 60, maxWidth: "90%", boxShadow: "0 4px 18px rgba(0,0,0,0.5)" }}>

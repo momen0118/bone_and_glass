@@ -655,8 +655,8 @@ const Portrait = ({ cid, imgs, fileImgs, size = 34 }) => {
 // 夜のカード用の大きな肖像。銅版画のビネット様式: 縦楕円+縁ぼかし(硬い枠線は使わない)。
 // 楕円の輪郭に沿って mask-image の radial-gradient で背景へ溶かす。画像が無ければ絵文字を大きく。
 // 夜ログの小さいPortrait・画廊は現状(円形)のまま(小サイズではビネットが潰れるため)。
-// VIGNETTE: 中心(顔)は不透明、縁は透明へフェード。中心をやや上(42%)に置き頭頂の余白を確保。
-const VIGNETTE = "radial-gradient(ellipse 50% 50% at 50% 42%, #000 60%, rgba(0,0,0,0) 88%)";
+// VIGNETTE: 完全表示域を広く取り(72%)、ぼかし帯を外周へ追い込む。頬から上に減光をかけない。
+const VIGNETTE = "radial-gradient(ellipse 50% 50% at 50% 47%, #000 72%, rgba(0,0,0,0) 92%)";
 const FramedPortrait = ({ cid, imgs, fileImgs, width = "40%" }) => {
   const fileUrl = fileImgs && fileImgs.portraits && fileImgs.portraits[cid];
   const meta = imgs && imgs[cid];
@@ -1608,15 +1608,16 @@ export default function BoneAndGlass() {
                 // 3段目(6〜8枠)はサイズ7以上のときだけ下に生える
                 if (row === 2 && g.shelfSize <= 6) return null;
                 const idxs = [row * 3, row * 3 + 1, row * 3 + 2];
+                const rowLocked = idxs.some((i) => i >= g.shelfSize); // ロック枠を含む段は板を半透明に
                 return (
-                  <div key={row} style={{ marginBottom: 12 }}>
+                  <div key={row} style={{ marginBottom: 7 }}>
                     {/* 品物(硝子板の上に立つ。底=足元を板の上辺に接地) */}
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", alignItems: "end" }}>
                       {idxs.map((i) => {
                         const id = g.shelf[i];
                         const locked = i >= g.shelfSize;
                         if (locked) return (
-                          <div key={i} style={{ minHeight: 94, display: "flex", alignItems: "flex-end", justifyContent: "center", paddingBottom: 6, fontSize: 10, color: "#5a4f3d" }}>増設で解放</div>
+                          <div key={i} style={{ minHeight: 100, display: "flex", alignItems: "flex-end", justifyContent: "center", paddingBottom: 6, fontSize: 10, color: "#5a4f3d" }}>増設で解放</div>
                         );
                         const bonus = adjBonus(g.shelf, i, g.shelfSize);
                         const inSet = curSets.some((s) => s.members.includes(id));
@@ -1627,15 +1628,15 @@ export default function BoneAndGlass() {
                               fontFamily: "inherit", cursor: "pointer",
                               background: sel ? "rgba(201,161,94,0.12)" : "transparent",
                               border: "none", outline: sel ? `1px solid ${C.brass}` : "none",
-                              borderRadius: 6, color: C.ivory, padding: "6px 3px 2px", minHeight: 94,
-                              display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", gap: 3,
+                              borderRadius: 6, color: C.ivory, padding: "6px 3px 2px", minHeight: 100,
+                              display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", gap: 4,
                             }}>
                             {id ? (
                               <>
-                                <SpecIcon id={id} fileImgs={fileImgs} size={40} emojiSize={24} />
-                                <div style={{ fontSize: 10, textAlign: "center", lineHeight: 1.25, color: isWorm(id) ? C.dim : C.ivory }}>{specOf(id).name}</div>
+                                <SpecIcon id={id} fileImgs={fileImgs} size={48} emojiSize={28} />
+                                <div style={{ fontSize: 11, textAlign: "center", lineHeight: 1.25, color: isWorm(id) ? C.dim : C.ivory }}>{specOf(id).name}</div>
                                 {/* 値札: 品物の足元、板の上に置かれた小札(スクエア) */}
-                                <div style={{ fontSize: 10.5, color: inSet ? C.brass : bonus ? C.glass : C.brass, background: "rgba(20,17,13,0.6)", padding: "1px 6px", fontVariantNumeric: "tabular-nums" }}>
+                                <div style={{ fontSize: 12, color: inSet ? C.brass : bonus ? C.glass : C.brass, background: "rgba(20,17,13,0.6)", padding: "2px 7px", fontVariantNumeric: "tabular-nums" }}>
                                   {shelfPrice(g, i, curSets)}G{inSet ? " ✦" : bonus ? " ↑" : ""}
                                 </div>
                               </>
@@ -1646,10 +1647,11 @@ export default function BoneAndGlass() {
                         );
                       })}
                     </div>
-                    {/* 硝子板: 段の全幅を貫く一枚。上辺に硝子のハイライト、下に落ち影で奥行き */}
-                    <div style={{ height: 14, transform: "skewX(-10deg)",
-                      background: "linear-gradient(to bottom, rgba(127,160,122,0.22), rgba(127,160,122,0.05))",
-                      borderTop: "1.5px solid rgba(190,214,205,0.45)", boxShadow: "0 4px 7px rgba(0,0,0,0.4)" }} />
+                    {/* 硝子板: 段の全幅を貫く一枚。手前の厚みを増し、上辺に硝子のハイライト・下に落ち影で奥行き。
+                        ロック段(増設で解放を含む)は半透明にして未成立を示す */}
+                    <div style={{ height: 30, transform: "skewX(-10deg)", opacity: rowLocked ? 0.4 : 1,
+                      background: "linear-gradient(to bottom, rgba(190,214,205,0.28) 0, rgba(127,160,122,0.20) 22%, rgba(127,160,122,0.06) 100%)",
+                      borderTop: "1.5px solid rgba(200,222,214,0.5)", boxShadow: "0 5px 9px rgba(0,0,0,0.45)" }} />
                   </div>
                 );
               })}

@@ -84,6 +84,8 @@ export const SPECIMENS = {
   s_murasaki:  { name: "紫水晶の晶柱",   icon: "💜", price: 240, cat: "mineral", tags: ["fancy"] },
   s_ougon:     { name: "黄鉄鉱の結晶",   icon: "🪙", price: 100, cat: "mineral", tags: [] },
   s_shoudou:   { name: "晶洞",           icon: "🪨", price: 550, cat: "mineral", tags: ["rare","fancy"] },
+  // --- v7 追加(エンディング。倉庫にも棚にも入らない常設飾り・非売) ---
+  s_hanakago:  { name: "硝子の花籠",     icon: "🪸", price: 0,   cat: "craft",   tags: [], nosale: true },
 };
 
 // ---------- 標本の一言説明(図鑑の詳細ビュー用) ----------
@@ -119,6 +121,7 @@ export const SPEC_LORE = {
   s_murasaki: "石の中に、夕暮れを閉じ込めたような色。貴人の棚によく映える。",
   s_ougon: "金に見える。金ではない。それでも欲しがる者には、それで十分。",
   s_shoudou: "ただの岩だと思っていた。割った者だけが、中の星空を知っている。",
+  s_hanakago: "深海に育つ、硝子の骨を持つ海綿。人の手が届くより前から、硝子細工はここにあった。",
 };
 
 // ---------- 虫食い・樟脳・蟲屋 ----------
@@ -215,6 +218,8 @@ export const RECIPES = [
   { id: "r29", from: "murasaki",    proc: "polish",   to: "s_murasaki" },
   { id: "r30", from: "ougon",       proc: "polish",   to: "s_ougon" },
   { id: "r31", from: "shoudou",     proc: "polish",   to: "s_shoudou",    minLv: 4 },
+  // --- v7(エンディング): 深海の硝子海綿 → 硝子封入(Lv3・硝子瓶1)→ 硝子の花籠 ---
+  { id: "r32", from: "kaimen",      proc: "preserve", to: "s_hanakago",   minLv: 3 },
 ];
 // 標本 → 最終工程(熟練Lv3の売価ボーナス用)
 export const SPEC_PROC = {};

@@ -16,10 +16,12 @@ export const PORTRAIT_IDS = ["gakusei", "gakusha", "koujika", "kifujin", "collec
 // sky=1.35 は月独白の空画像の拡大トリム(外周の白フチ・黒台紙を金枠の外へ出し、絵柄だけを収める)
 export const FILE_ZOOM = { portrait: 1.7, shop: 1.1, site: 1.1, sky: 1.35 };
 
-// 額なし版の肖像(横長の銅版画・顔は上部で小さめ)を顔基準で収めるための個別調整。
-// scale=拡大率 / oy=transform-origin の縦位置(%)。原点を顔より上に置き、拡大で顔を枠中央へ下ろす。
-// 顔の位置・大きさは肖像ごとにばらつくため一枚ずつ調整(円Portrait・楕円ビネット共通で使用)。
-export const PORTRAIT_FRAME = {
+// 額なし版の肖像(横長の銅版画・人物は上部で小さめ)を収めるための個別調整。
+// scale=拡大率 / oy=transform-origin の縦位置(%)。原点を人物より上に置き、拡大で下ろす。
+// AI生成で位置・大きさがばらつくため一枚ずつ調整。
+// 大きさで切り出しを変える: 小さい丸Portrait(セリフ行等)は顔アップで判別性を優先、
+// 大きい楕円ビネット(夜カード・演出)はバストアップ(頭〜肩・胸上部)。
+export const PORTRAIT_FRAME = { // 小丸(顔アップ)
   gakusei:    { scale: 2.3, oy: 16 },
   gakusha:    { scale: 2.05, oy: 18 },
   koujika:    { scale: 1.95, oy: 23 },
@@ -30,7 +32,19 @@ export const PORTRAIT_FRAME = {
   mushiya:    { scale: 2.3, oy: 15 },
   saisyuunin: { scale: 2.2, oy: 15 },
 };
+export const PORTRAIT_VIGNETTE = { // 大楕円(バストアップ・頭上に高さ1割弱の余白)
+  gakusei:    { scale: 1.65, oy: 20 },
+  gakusha:    { scale: 1.5, oy: 20 },
+  koujika:    { scale: 1.4, oy: 24 },
+  kifujin:    { scale: 1.7, oy: 16 },
+  collector:  { scale: 1.6, oy: 18 },
+  ooya:       { scale: 1.65, oy: 18 },
+  wakate:     { scale: 1.65, oy: 18 },
+  mushiya:    { scale: 1.65, oy: 16 },
+  saisyuunin: { scale: 1.5, oy: 17 },
+};
 export const portraitFrame = (cid) => PORTRAIT_FRAME[cid] || { scale: 2.2, oy: 18 };
+export const portraitVignette = (cid) => PORTRAIT_VIGNETTE[cid] || { scale: 1.6, oy: 18 };
 
 // 標本画像の外周トリム倍率: 生成画像の白フチ・右下の署名を表示時に切り落とす(元ファイルは加工しない)
 export const SPEC_TRIM = 1.15;

@@ -22,7 +22,7 @@ import {
   RENT, RENT_INTERVAL, MAX_AP,
 } from "./data.js";
 import { storage } from "./storage.js";
-import { loadFileImages, FILE_ZOOM, specTrim, portraitFrame } from "./images.js";
+import { loadFileImages, FILE_ZOOM, specTrim, portraitFrame, portraitVignette } from "./images.js";
 
 // ---------- ユーティリティ ----------
 const rnd = (n) => Math.floor(Math.random() * n);
@@ -663,7 +663,8 @@ const FramedPortrait = ({ cid, imgs, fileImgs, width = "40%" }) => {
   const meta = imgs && imgs[cid];
   const src = fileUrl || (meta && meta.data);
   const fb = portraitFallback(cid);
-  const fr = fileUrl ? portraitFrame(cid) : { scale: (meta && meta.zoom) || 1.15, oy: 50 };
+  // ビネットはバストアップ(頭〜肩)。画廊アップロードは従来の中央拡大
+  const fr = fileUrl ? portraitVignette(cid) : { scale: (meta && meta.zoom) || 1.15, oy: 50 };
   return (
     <div style={{ width, flexShrink: 0 }}>
       <div style={{ aspectRatio: "4 / 5", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center",

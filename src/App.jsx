@@ -15,6 +15,8 @@ import {
   GAKUSEI_KOUHAI_LINE, GAKUSEI_GRAD, SWAMP_UNLOCK, CAVE_UNLOCK, SPEC_LORE,
   WORM, isWorm, wormId, baseId, WORM_CATS, specOf, CAMPHOR, mushiDiscover, MUSHIYA,
   moonPhase, MOON_OPEN, MOON_BOOST, ANA_ALIAS,
+  ORDER_UNLOCK_REP, ORDER_CHANCE, ORDER_REWARD_MULT, ORDER_EXPIRED_LOG,
+  ORDER_CLIENTS, ORDER_FILTER, ORDER_LETTERS,
   RENT, RENT_INTERVAL, MAX_AP,
 } from "./data.js";
 import { storage } from "./storage.js";
@@ -66,6 +68,9 @@ function newGame() {
     mushiFirstNight: false, // 初回イベント: 虫湧き済みで蟲屋の来店待ち
     mushiMorning: null,     // 翌朝に見せる虫食い発見文
     mushiSold: 0, anaAlias: false, // 蟲屋への累計売却数と隠し通り名「穴物堂」
+    order: null,   // 受領済みの特注 { client, specId, qty, dueDay, reward }
+    letter: null,  // 未受領の手紙 { client, specId, qty, term, reward, li }
+    orderExpired: false, // その朝に期限切れが起きたか(冒頭ログ用)
   };
 }
 const clampTrust = (t) => Math.max(-6, Math.min(6, t));
@@ -104,7 +109,34 @@ function migrate(loaded) {
   g.mushiMorning = loaded.mushiMorning || null;
   g.mushiSold = loaded.mushiSold || 0; // 旧セーブは0開始
   g.anaAlias = !!loaded.anaAlias;
+  g.order = loaded.order || null;   // 旧セーブは特注なし
+  g.letter = loaded.letter || null;
+  g.orderExpired = false;
   return g;
+}
+// 特注の手紙を1通生成(条件を満たさなければ null)。基準価=basePrice(g, id)
+function rollOrderLetter(g) {
+  // 依頼人抽選(解禁済みの客層のみ)
+  const clientPool = ORDER_CLIENTS.filter((c) => {
+    if (c.flag && !g[c.flag]) return false;
+    const cust = CUSTOMERS.find((x) => x.id === c.id);
+    return cust && g.rep >= cust.minRep;
+  });
+  if (!clientPool.length) return null;
+  const client = weightedPick(clientPool.map((c) => [c, c.weight])).id;
+  // 発見済みレシピの品(=作れると分かっている標本)
+  const knownSpecs = [...new Set(RECIPES.filter((r) => g.known.includes(r.id)).map((r) => r.to))];
+  const filt = ORDER_FILTER[client];
+  const pool = knownSpecs.filter((id) => SPECIMENS[id] && filt(SPECIMENS[id], basePrice(g, id)));
+  if (!pool.length) return null;
+  const specId = pick(pool);
+  const price = basePrice(g, specId);
+  // 数量(基準価帯)。<150=2〜3 / 150〜250=1〜2 / 250超=1
+  const qty = price < 150 ? 2 + rnd(2) : price <= 250 ? 1 + rnd(2) : 1;
+  const term = 3 + (qty - 1); // 納期(受領日を含まず翌日から起算)
+  const reward = round5(price * qty * ORDER_REWARD_MULT);
+  const li = rnd(ORDER_LETTERS[client].length);
+  return { client, specId, qty, term, reward, li };
 }
 
 // ---------- 棚まわりの計算 ----------
@@ -846,14 +878,38 @@ export default function BoneAndGlass() {
 
   // ---- 翌朝 ----
   const nextDay = () => {
+    const day = g.day + 1;
+    // 特注: 期限切れ判定(納期を過ぎた朝に消滅・評判-2)。放置された手紙は翌朝に流れる(無ペナルティ)
+    let order = g.order, rep = g.rep, orderExpired = false, letter = null;
+    if (order && day > order.dueDay) { order = null; rep = Math.max(0, rep - 2); orderExpired = true; }
+    // 依頼を受けていない朝は、確率で手紙が1通届く(解禁評判以上・該当プールがあるとき)
+    if (!order && rep >= ORDER_UNLOCK_REP && Math.random() < ORDER_CHANCE) letter = rollOrderLetter({ ...g, rep });
     const ng = {
-      ...g, day: g.day + 1, phase: "morning", ap: MAX_AP + (g.apprentice ? 1 : 0),
+      ...g, day, phase: "morning", ap: MAX_AP + (g.apprentice ? 1 : 0),
       nightLog: [], nightRent: null, craftLog: [], offer: null, offerResult: null,
       collectorCd: Math.max(0, (g.collectorCd || 0) - 1),
       // 信頼は負のときだけ毎朝+0.5ずつ0へ回復(正の値は減衰しない)
       trust: (g.trust || 0) < 0 ? Math.min(0, (g.trust || 0) + 0.5) : (g.trust || 0),
+      order, rep, letter, orderExpired,
     };
     setG(ng); save(ng);
+  };
+  // ---- 特注: 受ける / 断る / 納品 ----
+  const acceptOrder = () => {
+    const l = g.letter; if (!l) return;
+    setG({ ...g, letter: null, order: { client: l.client, specId: l.specId, qty: l.qty, dueDay: g.day + l.term, reward: l.reward } });
+  };
+  const declineOrder = () => setG({ ...g, letter: null });
+  const deliverOrder = () => {
+    const o = g.order; if (!o) return;
+    if ((g.spec[o.specId] || 0) < o.qty) return; // 倉庫在庫のみ・数量必須
+    const spec = { ...g.spec };
+    spec[o.specId] -= o.qty; if (spec[o.specId] <= 0) delete spec[o.specId];
+    const cust = CUSTOMERS.find((c) => c.id === o.client);
+    const custBought = { ...g.custBought, [o.client]: (g.custBought[o.client] || 0) + o.qty };
+    // 報酬入金・評判+2・常連度に加算。soldByCat(通り名)には数えない
+    setG({ ...g, spec, order: null, gold: g.gold + o.reward, rep: g.rep + 2, custBought });
+    flash(`${cust ? cust.name : ""}に ${SPECIMENS[o.specId].name}×${o.qty} を届けた。${o.reward}G を受け取った。`);
   };
 
   const resetAll = async () => {

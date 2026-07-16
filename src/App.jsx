@@ -19,6 +19,7 @@ import {
   ORDER_CLIENTS, ORDER_FILTER, ORDER_LETTERS, ORDER_SITE_GATE, ORDER_RARE,
   BUYOUT_CELEBRATE, SCENES, OOYA_ORDER,
   APPRENTICE_INTRO, APPRENTICE_HIRE_FIRST, MONTH_REMARKS, RUMORS, RUMOR_CHANCE, OP,
+  ENDING_REP, HANAKAGO, BANSHO,
   RENT, RENT_INTERVAL, MAX_AP,
 } from "./data.js";
 import { storage } from "./storage.js";
@@ -85,6 +86,11 @@ function newGame() {
     ooyaOrderState: "none",   // 大家の依頼: none(未発生) / active(受注中) / done(完了)
     ooyaDelivered: {},        // 大家の依頼の部分納品済み数(specId → 数)
     haikouUnlocked: false,    // 廃坑(採集地)の解禁
+    // --- v7: 万象の夜(エンディング) ---
+    endingDone: false,        // 蒐集家の夜(エンディング演出)の消化
+    hanakagoState: "none",    // 硝子の花籠: none(未入手)/ material(素材所持)/ done(完成)
+    banshoAlias: false,       // 通り名「万象堂」の獲得
+    banshoMorning: false,     // その朝に万象堂の冒頭ログを出すか(翌朝クリア)
   };
 }
 const clampTrust = (t) => Math.max(-6, Math.min(6, t));
@@ -141,10 +147,22 @@ function migrate(loaded) {
   g.ooyaOrderState = loaded.ooyaOrderState || "none";
   g.ooyaDelivered = loaded.ooyaDelivered || {};
   g.haikouUnlocked = !!loaded.haikouUnlocked;
+  // v7: エンディング
+  g.endingDone = !!loaded.endingDone;
+  g.hanakagoState = loaded.hanakagoState || "none";
+  g.banshoAlias = !!loaded.banshoAlias;
+  g.banshoMorning = !!loaded.banshoMorning;
   // 買い取り済みの旧セーブ: 翌日を「買い取り当日」とみなしてイベント列を開始する
   g.buyoutDay = typeof loaded.buyoutDay === "number" ? loaded.buyoutDay
     : (g.ownShop && !g.kifujinRumorDone ? g.day + 1 : null);
   return g;
+}
+// エンディング条件: 花籠を除く全標本を発見済み かつ 評判ENDING_REP以上(未消化)。trust・出現率は不問
+function endingReady(g) {
+  if (g.endingDone || g.rep < ENDING_REP) return false;
+  const goal = Object.keys(SPECIMENS).filter((id) => id !== HANAKAGO).length;
+  const found = new Set(RECIPES.filter((r) => g.known.includes(r.id) && r.to !== HANAKAGO).map((r) => r.to)).size;
+  return found >= goal;
 }
 // 特注の手紙を1通生成(条件を満たさなければ null)。基準価=basePrice(g, id)
 function rollOrderLetter(g) {
@@ -538,9 +556,10 @@ function simulateNight(g) {
   let wageText = null;
   if (g.apprentice) { gold -= 50; wageText = "見習いに日当 50G を払った。"; }
 
-  // 蒐集家の来訪判定(trustが負のときのみ出現率が減衰。正でも上げない)
+  // 蒐集家の来訪判定(trustが負のときのみ出現率が減衰。正でも上げない)。
+  // エンディングの夜は通常の蒐集家来訪をスキップ(万象の夜の演出が単独で出る)
   let offer = null;
-  if (g.rep >= 18 && (g.collectorCd || 0) <= 0) {
+  if (g.rep >= 18 && (g.collectorCd || 0) <= 0 && !endingReady(g)) {
     const nightSet = sets.some((s) => s.id === "set_night");
     let appearRate = 0.22 + (nightSet ? 0.15 : 0);
     const trust = g.trust || 0;
@@ -746,8 +765,7 @@ export default function BoneAndGlass() {
   const [showGallery, setShowGallery] = useState(false);
   const [showDecor, setShowDecor] = useState(false);
   const [toast, setToast] = useState(null);
-  const toastQ = useRef([]);       // 表示待ちのトースト列
-  const toastBusy = useRef(false); // 送り中フラグ
+  const toastTimer = useRef(null); // 表示タイマー(差し替え時にリセット)
   // 夜のカード送り: idx=表示中のステップ, sub=多段カードの表示済み行数, collapsed=「残りをまとめる」押下済み
   const [nightView, setNightView] = useState({ idx: 0, sub: 1, collapsed: false });
   // 洞窟解禁の朝のイベント行(その朝のあいだだけ表示)
@@ -802,17 +820,11 @@ export default function BoneAndGlass() {
     try { await storage.set(SAVE_KEY, JSON.stringify(ng)); } catch (e) {}
     setOpStep(0); // 新規開始のみOP演出を挟む(続きからでは出さない)
   };
-  // トーストはキュー化: 表示中に新規が来たら上書きせず順送り(採集結果の重なり対策)
-  const pumpToast = () => {
-    const next = toastQ.current.shift();
-    if (next === undefined) { toastBusy.current = false; setToast(null); return; }
-    toastBusy.current = true;
-    setToast(next);
-    setTimeout(pumpToast, 2400);
-  };
+  // トーストは後着優先の即時差し替え。差し替え時に表示タイマーをリセットし、常に規定時間フル表示する。
   const flash = (msg) => {
-    toastQ.current.push(msg);
-    if (!toastBusy.current) pumpToast();
+    setToast(msg);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => { setToast(null); toastTimer.current = null; }, 2400);
   };
 
   // ---- 朝 ----
@@ -889,6 +901,18 @@ export default function BoneAndGlass() {
   const doCraft = (r, n = 1) => {
     if (g.ap <= 0) return flash("今日の作業はもう終わり");
     const p = PROCESSES[r.proc];
+    // 硝子の花籠: 倉庫にも棚にも入らない。完成した瞬間、店の常設の飾りになる
+    if (r.to === HANAKAGO) {
+      const inv = { ...g.inv };
+      inv[r.from] -= 1; if (inv[r.from] <= 0) delete inv[r.from];
+      if (p.needs) { inv[p.needs] -= 1; if (inv[p.needs] <= 0) delete inv[p.needs]; }
+      const known = g.known.includes(r.id) ? g.known : [...g.known, r.id];
+      const exp = { ...g.procExp, [r.proc]: (g.procExp[r.proc] || 0) + 1 };
+      setG({ ...g, inv, known, ap: g.ap - 1, procExp: exp, hanakagoState: "done" });
+      setSel(null);
+      setScene({ id: "hanakagoDone", step: 0 }); // 常設飾りにした一幕(タップ送り・フェード)
+      return;
+    }
     const inv = { ...g.inv }; const spec = { ...g.spec };
     if (SPECIMENS[r.from]) { spec[r.from] -= n; if (spec[r.from] <= 0) delete spec[r.from]; }
     else { inv[r.from] -= n; if (inv[r.from] <= 0) delete inv[r.from]; }
@@ -1026,6 +1050,8 @@ export default function BoneAndGlass() {
     if (!order && rep >= ORDER_UNLOCK_REP && Math.random() < ORDER_CHANCE) letter = rollOrderLetter({ ...src, rep });
     // 見習いの押しかけ: 評判20到達の翌朝、一度だけイベント行を出し見習い欄を解禁
     const apprenticeMorning = !src.apprenticeSeen && rep >= 20;
+    // 万象堂: 花籠完成の翌朝、通り名を得て冒頭ログを出す(一度きり)
+    const banshoMorning = src.hanakagoState === "done" && !src.banshoAlias;
     const ng = {
       ...src, day, phase: "morning", ap: MAX_AP + (src.apprentice ? 1 : 0),
       nightLog: [], nightRent: null, craftLog: [], offer: null, offerResult: null,
@@ -1034,12 +1060,18 @@ export default function BoneAndGlass() {
       trust: (src.trust || 0) < 0 ? Math.min(0, (src.trust || 0) + 0.5) : (src.trust || 0),
       order, rep, letter, orderExpired,
       apprenticeMorning, apprenticeSeen: src.apprenticeSeen || apprenticeMorning,
+      banshoMorning, banshoAlias: src.banshoAlias || banshoMorning,
     };
     // 大家の依頼: 4品すべて倉庫に揃った朝は自動で開く。揃っていなければ畳む。
     setOoyaCardOpen(ooyaOrderReady(ng));
     setG(ng); save(ng);
   };
   const nextDay = () => {
+    // 万象の夜(エンディング): 条件を満たした夜の閉店後に単独で発生(通常の蒐集家・大家来訪より優先)
+    if (endingReady(g)) {
+      setScene({ id: "endingNight", step: 0 });
+      return;
+    }
     // 大家の来訪: 買い取りから3日後の夜、閉店後にタップ送り演出を挟む(演出後に受注確定→翌朝へ)
     if (g.ownShop && !g.ooyaVisitDone && g.buyoutDay != null && g.day === g.buyoutDay + 3) {
       setScene({ id: "ooyaVisit", step: 0 });
@@ -1057,6 +1089,11 @@ export default function BoneAndGlass() {
     // ooyaVisit: 演出終了=受注確定。そのまま翌朝へ進む。
     // kifujinRumor(開店直後)・ooyaReward(納品時)は状態確定済みで、演出のみ。
     if (id === "ooyaVisit") advanceDay({ ooyaVisitDone: true, ooyaOrderState: "active", ooyaDelivered: {} });
+    // endingNight: 演出終了で消化。翌朝、倉庫に「深海の硝子海綿」が入っている。
+    else if (id === "endingNight") {
+      advanceDay({ endingDone: true, hanakagoState: "material", inv: { ...g.inv, kaimen: (g.inv.kaimen || 0) + 1 } });
+    }
+    // hanakagoDone(花籠完成): 演出のみ(状態はdoCraftで確定済み)
   };
   // ---- 特注: 受ける / 断る / 納品 ----
   const acceptOrder = () => {
@@ -1156,6 +1193,8 @@ export default function BoneAndGlass() {
   const wormCount = specEntries.filter(([k]) => isWorm(k)).reduce((n, [, v]) => n + v, 0)
     + g.shelf.filter((x) => x && isWorm(x)).length;
   const knownSpecs = new Set(RECIPES.filter((r) => g.known.includes(r.id)).map((r) => r.to));
+  // 図鑑の総数: 花籠は発見するまで数に含めない(31→発見後32)。エンディングまで存在を伏せる
+  const specTotal = Object.keys(SPECIMENS).length - (knownSpecs.has(HANAKAGO) ? 0 : 1);
   const curSets = activeSets(g.shelf, g.shelfSize);
   // 受注中の依頼(通常+大家)に必要な品種。陳列の在庫チップに ✉ を添える(可視化のみ)
   const orderNeeds = new Set();
@@ -1348,7 +1387,7 @@ export default function BoneAndGlass() {
       <div style={{ fontSize: 13, color: C.brass, letterSpacing: "0.2em", marginBottom: 6 }}>{g.day / 30}ヶ月目の記録</div>
       <div style={{ fontSize: 13, lineHeight: 2 }}>
         累計売上 {g.totalEarn}G / 販売数 {g.totalSold}点<br />
-        図鑑 {knownSpecs.size}/{Object.keys(SPECIMENS).length} 種 / 銘板 {g.knownSets.length}/{SETS.length} / 評判 {g.rep}<br />
+        図鑑 {knownSpecs.size}/{specTotal} 種 / 銘板 {g.knownSets.length}/{SETS.length} / 評判 {g.rep}<br />
         <span style={{ color: C.dim, fontSize: 12 }}>
           {MONTH_REMARKS[Math.min(g.day / 30, 4) - 1]}
         </span>
@@ -1370,9 +1409,9 @@ export default function BoneAndGlass() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 10, borderBottom: `1px solid ${C.line}`, paddingBottom: 8, marginBottom: 10 }}>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 10, letterSpacing: "0.3em", color: C.dim, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>骨と硝子の店</div>
-            {(aliasCat || g.anaAlias) && (
+            {(aliasCat || g.anaAlias || g.banshoAlias) && (
               <div style={{ fontSize: 10, letterSpacing: "0.15em", color: C.brass, whiteSpace: "nowrap" }}>
-                人呼んで{aliasCat && `『${ALIASES[aliasCat].name}』`}{g.anaAlias && `『${ANA_ALIAS.name}』`}
+                人呼んで{aliasCat && `『${ALIASES[aliasCat].name}』`}{g.anaAlias && `『${ANA_ALIAS.name}』`}{g.banshoAlias && `『${BANSHO.name}』`}
               </div>
             )}
             <div style={{ fontSize: 16, letterSpacing: "0.1em", whiteSpace: "nowrap" }}>{g.day}日目 <MoonIcon day={g.day} fileImgs={fileImgs} size={14} /> <span style={{ color: C.brass }}>{PHASE_LABEL[g.phase]}</span></div>
@@ -1392,6 +1431,12 @@ export default function BoneAndGlass() {
               <div style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13, lineHeight: 1.9, color: C.ivory, borderLeft: `2px solid ${C.brass}`, paddingLeft: 8 }}>
                 <span style={{ fontSize: 16 }}>📄</span>
                 <span>{APPRENTICE_INTRO}</span>
+              </div>
+            )}
+            {g.banshoMorning && (
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13, lineHeight: 1.9, color: C.brass, borderLeft: `2px solid ${C.brass}`, paddingLeft: 8 }}>
+                <span style={{ fontSize: 15 }}>✦</span>
+                <span>{BANSHO.morning}</span>
               </div>
             )}
             {g.mushiMorning && (
@@ -1673,6 +1718,14 @@ export default function BoneAndGlass() {
         {/* ===== 夕(陳列) ===== */}
         {g.phase === "shelf" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {/* 硝子の花籠: 非売の常設飾り。棚枠の外・上部に控えめに表示 */}
+            {g.hanakagoState === "done" && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, borderBottom: `1px solid ${C.line}`, paddingBottom: 8, fontSize: 12 }}>
+                <SpecIcon id={HANAKAGO} fileImgs={fileImgs} size={28} emojiSize={18} />
+                <span style={{ color: C.ivory }}>{SPECIMENS[HANAKAGO].name}</span>
+                <span style={{ marginLeft: "auto", color: C.brass, fontSize: 11, letterSpacing: "0.1em" }}>非売</span>
+              </div>
+            )}
             <div style={{ fontSize: 12, color: C.dim }}>硝子棚に並べる。同じ分類を隣り合わせると値打ちが上がり、良い組み合わせには銘板が掲がる。</div>
 
             {/* 硝子棚: 各段の下に一枚の硝子板(skewで奥行き)を敷き、品物が板の上に立つ。面はスクエア */}
@@ -1878,6 +1931,8 @@ export default function BoneAndGlass() {
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
                     {Object.entries(SPECIMENS).map(([id, s]) => {
                       const found = knownSpecs.has(id);
+                      // 花籠は発見するまで枠ごと伏せる(標本タブの最後・非売)
+                      if (id === HANAKAGO && !found) return null;
                       const recipe = found ? RECIPES.find((r) => r.to === id) : null;
                       return (
                         <div key={id} onClick={() => found && setBookDetail(id)}
@@ -1886,7 +1941,7 @@ export default function BoneAndGlass() {
                             {found ? <SpecIcon id={id} fileImgs={fileImgs} size={28} emojiSize={13} /> : "▪"} <span>{found ? s.name : "?????"}</span>
                           </div>
                           <div style={{ fontSize: 10, color: C.dim, marginTop: 2 }}>
-                            {found ? <>{CAT_NAME[s.cat]} · {s.price}G{s.tags.map((t) => <TagChip key={t} t={t} />)}</> : "未発見"}
+                            {found ? <>{CAT_NAME[s.cat]} · {s.nosale ? "非売" : `${s.price}G`}{s.tags.map((t) => <TagChip key={t} t={t} />)}</> : "未発見"}
                           </div>
                           {recipe && (
                             <div style={{ fontSize: 10, color: C.dim, marginTop: 2 }}>
@@ -1935,6 +1990,13 @@ export default function BoneAndGlass() {
                       <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>{ANA_ALIAS.desc}</div>
                     </div>
                   )}
+                  {/* 「万象堂」: 花籠完成後のみ表示(独立枠) */}
+                  {g.banshoAlias && (
+                    <div style={{ border: `1px solid ${C.brass}`, borderRadius: 5, padding: 8 }}>
+                      <div style={{ fontSize: 13, color: C.brass }}>『{BANSHO.name}』</div>
+                      <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>{BANSHO.desc}</div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1963,7 +2025,7 @@ export default function BoneAndGlass() {
                   )}
                 </div>
                 <div style={{ fontSize: 12, color: C.dim, textAlign: "center" }}>
-                  {CAT_NAME[s.cat]} · {s.price}G{s.tags.map((t) => <TagChip key={t} t={t} />)}
+                  {CAT_NAME[s.cat]} · {s.nosale ? "非売" : `${s.price}G`}{s.tags.map((t) => <TagChip key={t} t={t} />)}
                 </div>
                 {recipe && (
                   <div style={{ fontSize: 12, color: C.dim, textAlign: "center", marginTop: 4 }}>
@@ -2102,7 +2164,7 @@ export default function BoneAndGlass() {
           <Btn onClick={() => setShowGallery(true)} style={FOOT_BTN}>画廊</Btn>
           <Btn onClick={() => setShowDecor(true)} style={FOOT_BTN}>調度屋</Btn>
           <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
-            {g.phase === "morning" && <Btn primary onClick={() => { setCaveEvent(null); setG({ ...g, phase: "workshop", mushiMorning: null, apprenticeMorning: false }); }} style={FOOT_BTN}>工房へ →</Btn>}
+            {g.phase === "morning" && <Btn primary onClick={() => { setCaveEvent(null); setG({ ...g, phase: "workshop", mushiMorning: null, apprenticeMorning: false, banshoMorning: false }); }} style={FOOT_BTN}>工房へ →</Btn>}
             {g.phase === "workshop" && <Btn primary onClick={() => { setSel(null); setG({ ...g, phase: "shelf" }); }} style={FOOT_BTN}>陳列へ →</Btn>}
             {g.phase === "shelf" && (
               <>
@@ -2197,12 +2259,16 @@ export default function BoneAndGlass() {
       {scene && (() => {
         const def = SCENES[scene.id];
         const seg = def.seq[scene.step];
-        const custName = def.cid === "kifujin" ? "貴婦人" : def.cid === "ooya" ? OOYA.name : "";
+        const custName = def.cid === "kifujin" ? "貴婦人" : def.cid === "ooya" ? OOYA.name : def.cid === "collector" ? COLLECTOR.name : "";
+        // 肖像は cid があるときのみ。portraitFrom 以降のステップで初めて出す(蒐集家の夜の大ビネット初出)
+        const showPortrait = def.cid && scene.step >= (def.portraitFrom || 0);
         return (
           <div onClick={advanceScene} style={{ position: "fixed", inset: 0, background: "rgba(10,8,6,0.96)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 28, zIndex: 70, cursor: "pointer" }}>
-            <div style={{ width: "58%", maxWidth: 260 }}>
-              <FramedPortrait cid={def.cid} imgs={imgs} fileImgs={fileImgs} width="100%" />
-            </div>
+            {showPortrait && (
+              <div key="portrait" style={{ width: "58%", maxWidth: 260, animation: FADE }}>
+                <FramedPortrait cid={def.cid} imgs={imgs} fileImgs={fileImgs} width="100%" />
+              </div>
+            )}
             <div key={scene.step} style={{ marginTop: 26, minHeight: 92, maxWidth: 340, textAlign: "center", fontSize: 14, lineHeight: 2.1, color: seg.t === "line" ? C.ivory : C.dim, letterSpacing: seg.t === "beat" ? "0.08em" : "normal", animation: FADE }}>
               {seg.t === "line" ? `${custName}「${seg.text}」` : seg.text}
             </div>

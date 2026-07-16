@@ -38,11 +38,13 @@ export const MATERIALS = {
   murasaki: { name: "紫水晶の原石", icon: "💜" },
   ougon:    { name: "黄鉄鉱の塊",   icon: "🪙" },
   shoudou:  { name: "晶洞",         icon: "🪨" },
+  // --- v7 追加(蒐集家の夜) ---
+  kaimen:   { name: "深海の硝子海綿", icon: "🪸" },
   bin:     { name: "硝子瓶",     icon: "🫙", supply: true },
   waku:    { name: "真鍮の額縁", icon: "🖼️", supply: true },
   daiza:   { name: "黒檀の台座", icon: "◼️", supply: true },
 };
-export const MAT_ORDER = ["tori","chou","kabuto","koke","sakana","kai","kani","kurage","koumori","hebi","suisho","ammo","kaeru","tokage","ga","hikarigoke","fukurou","nezumi","murasaki","ougon","shoudou","bin","waku","daiza"];
+export const MAT_ORDER = ["tori","chou","kabuto","koke","sakana","kai","kani","kurage","koumori","hebi","suisho","ammo","kaeru","tokage","ga","hikarigoke","fukurou","nezumi","murasaki","ougon","shoudou","kaimen","bin","waku","daiza"];
 
 // ---------- 標本 ----------
 export const CAT_NAME = { bone: "骨格", insect: "昆虫", wet: "液浸", mineral: "鉱物", craft: "工芸" };
@@ -82,6 +84,8 @@ export const SPECIMENS = {
   s_murasaki:  { name: "紫水晶の晶柱",   icon: "💜", price: 240, cat: "mineral", tags: ["fancy"] },
   s_ougon:     { name: "黄鉄鉱の結晶",   icon: "🪙", price: 100, cat: "mineral", tags: [] },
   s_shoudou:   { name: "晶洞",           icon: "🪨", price: 550, cat: "mineral", tags: ["rare","fancy"] },
+  // --- v7 追加(エンディング。倉庫にも棚にも入らない常設飾り・非売) ---
+  s_hanakago:  { name: "硝子の花籠",     icon: "🪸", price: 0,   cat: "craft",   tags: [], nosale: true },
 };
 
 // ---------- 標本の一言説明(図鑑の詳細ビュー用) ----------
@@ -117,6 +121,7 @@ export const SPEC_LORE = {
   s_murasaki: "石の中に、夕暮れを閉じ込めたような色。貴人の棚によく映える。",
   s_ougon: "金に見える。金ではない。それでも欲しがる者には、それで十分。",
   s_shoudou: "ただの岩だと思っていた。割った者だけが、中の星空を知っている。",
+  s_hanakago: "深海に育つ、硝子の骨を持つ海綿。人の手が届くより前から、硝子細工はここにあった。",
 };
 
 // ---------- 虫食い・樟脳・蟲屋 ----------
@@ -174,7 +179,9 @@ export const PROCESSES = {
   polish:   { name: "研磨",     desc: "磨き上げて輝きを出す" },
   assemble: { name: "組立",     desc: "台座の上に骨を組み上げる", needs: "daiza" },
 };
-export const procLevel = (exp) => (exp >= 12 ? 3 : exp >= 4 ? 2 : 1);
+// 熟練の累計しきい値(Lv2/Lv3/Lv4)。様子見前提でここ一箇所で調整する。
+export const PROC_LV_EXP = [4, 12, 25];
+export const procLevel = (exp) => PROC_LV_EXP.reduce((lv, th) => (exp >= th ? lv + 1 : lv), 1);
 
 // ---------- レシピ (minLv: 必要熟練) ----------
 export const RECIPES = [
@@ -210,7 +217,9 @@ export const RECIPES = [
   { id: "r28", from: "s_nezukotsu", proc: "assemble", to: "s_nezuzen" },
   { id: "r29", from: "murasaki",    proc: "polish",   to: "s_murasaki" },
   { id: "r30", from: "ougon",       proc: "polish",   to: "s_ougon" },
-  { id: "r31", from: "shoudou",     proc: "polish",   to: "s_shoudou",    minLv: 3 },
+  { id: "r31", from: "shoudou",     proc: "polish",   to: "s_shoudou",    minLv: 4 },
+  // --- v7(エンディング): 深海の硝子海綿 → 硝子封入(Lv3・硝子瓶1)→ 硝子の花籠 ---
+  { id: "r32", from: "kaimen",      proc: "preserve", to: "s_hanakago",   minLv: 3 },
 ];
 // 標本 → 最終工程(熟練Lv3の売価ボーナス用)
 export const SPEC_PROC = {};
@@ -459,6 +468,29 @@ export const SCENES = {
     { t: "line", text: "……確かに。ほら、権利書だ。坑道はもうお前のもんだ。" },
     { t: "line", text: "崩れても知らねえぞ。……気をつけて掘れよ。" },
   ] },
+  // v7. 蒐集家の夜(エンディング)。1枚目の地の文のあとに初めて大ビネットを出す(portraitFrom:1)
+  endingNight: { cid: "collector", portraitFrom: 1, seq: [
+    { t: "narr", text: "——閉店後。音もなく、扉が開いた。" },
+    { t: "line", text: "……揃ったな。" },
+    { t: "line", text: "私は方々の店を見て歩く。買うのは、店を測るためだ。——ここは、もう測り終えた。" },
+    { t: "line", text: "今夜は買わない。代わりに、これを預けたい。" },
+    { t: "narr", text: "布包みが帳場に置かれた。解くと、硝子のような細工物——いや、骨だ。硝子の骨だ。" },
+    { t: "line", text: "深海の海綿だ。若い頃に手に入れて、仕立てられる職人を、ずっと探していた。" },
+    { t: "line", text: "……お前なら、できるだろう。" },
+    { t: "narr", text: "返事を待たずに、扉は閉まった。月の明るい晩だった。" },
+  ] },
+  // v7. 硝子の花籠 完成の一幕(肖像なし・地の文のみ)
+  hanakagoDone: { cid: null, seq: [
+    { t: "narr", text: "硝子の棚の、いちばん高いところに飾った。——売り物ではない。" },
+  ] },
+};
+export const ENDING_REP = 300;       // 蒐集家の夜の評判条件
+export const HANAKAGO = "s_hanakago"; // 硝子の花籠(倉庫にも棚にも入らない常設飾り)
+// 花籠完成の翌朝の冒頭ログ / 通り名
+export const BANSHO = {
+  name: "万象堂",
+  morning: "街の呼び名が、また増えた。——『万象堂』。世界の細部が並ぶ店、と。",
+  desc: "世界の細部が並んだ店の証",
 };
 // 大家の依頼(無期限・破棄不可・部分納品可・完了判定は4点すべて)
 export const OOYA_ORDER = {

@@ -16,6 +16,22 @@ export const PORTRAIT_IDS = ["gakusei", "gakusha", "koujika", "kifujin", "collec
 // sky=1.35 は月独白の空画像の拡大トリム(外周の白フチ・黒台紙を金枠の外へ出し、絵柄だけを収める)
 export const FILE_ZOOM = { portrait: 1.7, shop: 1.1, site: 1.1, sky: 1.35 };
 
+// 額なし版の肖像(横長の銅版画・顔は上部で小さめ)を顔基準で収めるための個別調整。
+// scale=拡大率 / oy=transform-origin の縦位置(%)。原点を顔より上に置き、拡大で顔を枠中央へ下ろす。
+// 顔の位置・大きさは肖像ごとにばらつくため一枚ずつ調整(円Portrait・楕円ビネット共通で使用)。
+export const PORTRAIT_FRAME = {
+  gakusei:    { scale: 2.3, oy: 16 },
+  gakusha:    { scale: 2.05, oy: 18 },
+  koujika:    { scale: 1.95, oy: 23 },
+  kifujin:    { scale: 2.3, oy: 14 },
+  collector:  { scale: 2.2, oy: 20 },
+  ooya:       { scale: 2.3, oy: 17 },
+  wakate:     { scale: 2.3, oy: 16 },
+  mushiya:    { scale: 2.3, oy: 15 },
+  saisyuunin: { scale: 2.2, oy: 15 },
+};
+export const portraitFrame = (cid) => PORTRAIT_FRAME[cid] || { scale: 2.2, oy: 18 };
+
 // 標本画像の外周トリム倍率: 生成画像の白フチ・右下の署名を表示時に切り落とす(元ファイルは加工しない)
 export const SPEC_TRIM = 1.15;
 // 個体差が出た標本用の上書き倍率(標本ID → 倍率)。初期は空

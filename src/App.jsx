@@ -22,7 +22,7 @@ import {
   RENT, RENT_INTERVAL, MAX_AP,
 } from "./data.js";
 import { storage } from "./storage.js";
-import { loadFileImages, FILE_ZOOM, specTrim } from "./images.js";
+import { loadFileImages, FILE_ZOOM, specTrim, portraitFrame } from "./images.js";
 
 // ---------- ユーティリティ ----------
 const rnd = (n) => Math.floor(Math.random() * n);
@@ -645,10 +645,11 @@ const Portrait = ({ cid, imgs, fileImgs, size = 34 }) => {
   const fb = portraitFallback(cid);
   const src = fileUrl || (meta && meta.data);
   if (!src) return <span style={{ fontSize: Math.round(size * 0.62), width: size, textAlign: "center", flexShrink: 0 }}>{fb}</span>;
-  const zoom = fileUrl ? FILE_ZOOM.portrait : (meta.zoom || 1.15);
+  // 額なし版はリポジトリ画像のとき顔基準で個別調整。画廊アップロードは従来の中央拡大
+  const fr = fileUrl ? portraitFrame(cid) : { scale: meta.zoom || 1.15, oy: 50 };
   return (
     <span style={{ width: size, height: size, borderRadius: "50%", overflow: "hidden", display: "inline-block", border: `1px solid ${C.line}`, flexShrink: 0, background: "#000" }}>
-      <img src={src} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", transform: `scale(${zoom})`, filter: "sepia(0.3) contrast(1.05) brightness(0.98)" }} />
+      <img src={src} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "50% 50%", transform: `scale(${fr.scale})`, transformOrigin: `50% ${fr.oy}%`, filter: "sepia(0.3) contrast(1.05) brightness(0.98)" }} />
     </span>
   );
 };
@@ -662,13 +663,13 @@ const FramedPortrait = ({ cid, imgs, fileImgs, width = "40%" }) => {
   const meta = imgs && imgs[cid];
   const src = fileUrl || (meta && meta.data);
   const fb = portraitFallback(cid);
-  const zoom = fileUrl ? FILE_ZOOM.portrait : (meta && meta.zoom) || 1.15;
+  const fr = fileUrl ? portraitFrame(cid) : { scale: (meta && meta.zoom) || 1.15, oy: 50 };
   return (
     <div style={{ width, flexShrink: 0 }}>
       <div style={{ aspectRatio: "4 / 5", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center",
         WebkitMaskImage: VIGNETTE, maskImage: VIGNETTE }}>
         {src
-          ? <img src={src} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center 46%", transform: `scale(${zoom})`, filter: "sepia(0.3) contrast(1.05) brightness(0.98)" }} />
+          ? <img src={src} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "50% 50%", transform: `scale(${fr.scale})`, transformOrigin: `50% ${fr.oy}%`, filter: "sepia(0.3) contrast(1.05) brightness(0.98)" }} />
           : <span style={{ fontSize: 52 }}>{fb}</span>}
       </div>
     </div>

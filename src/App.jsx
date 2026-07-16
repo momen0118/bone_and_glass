@@ -652,8 +652,11 @@ const Portrait = ({ cid, imgs, fileImgs, size = 34 }) => {
     </span>
   );
 };
-// 夜のカード用の大きな肖像。夜ログの小さいPortraitと同方式(円形切り抜き+真鍮枠)のスケールアップ版。
-// 画像が無ければ絵文字を大きく。画廊プレビュー・蒐集家・大家・蟲屋のカードもこれで統一する。
+// 夜のカード用の大きな肖像。銅版画のビネット様式: 縦楕円+縁ぼかし(硬い枠線は使わない)。
+// 楕円の輪郭に沿って mask-image の radial-gradient で背景へ溶かす。画像が無ければ絵文字を大きく。
+// 夜ログの小さいPortrait・画廊は現状(円形)のまま(小サイズではビネットが潰れるため)。
+// VIGNETTE: 中心(顔)は不透明、縁は透明へフェード。中心をやや上(42%)に置き頭頂の余白を確保。
+const VIGNETTE = "radial-gradient(ellipse 50% 50% at 50% 42%, #000 60%, rgba(0,0,0,0) 88%)";
 const FramedPortrait = ({ cid, imgs, fileImgs, width = "40%" }) => {
   const fileUrl = fileImgs && fileImgs.portraits && fileImgs.portraits[cid];
   const meta = imgs && imgs[cid];
@@ -662,9 +665,10 @@ const FramedPortrait = ({ cid, imgs, fileImgs, width = "40%" }) => {
   const zoom = fileUrl ? FILE_ZOOM.portrait : (meta && meta.zoom) || 1.15;
   return (
     <div style={{ width, flexShrink: 0 }}>
-      <div style={{ aspectRatio: "1 / 1", borderRadius: "50%", overflow: "hidden", border: `2px solid ${C.brass}`, background: "#171310", boxShadow: "0 2px 10px rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ aspectRatio: "4 / 5", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center",
+        WebkitMaskImage: VIGNETTE, maskImage: VIGNETTE }}>
         {src
-          ? <img src={src} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", transform: `scale(${zoom})`, filter: "sepia(0.3) contrast(1.05) brightness(0.98)" }} />
+          ? <img src={src} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center 40%", transform: `scale(${zoom})`, filter: "sepia(0.3) contrast(1.05) brightness(0.98)" }} />
           : <span style={{ fontSize: 52 }}>{fb}</span>}
       </div>
     </div>

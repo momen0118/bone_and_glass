@@ -174,7 +174,9 @@ export const PROCESSES = {
   polish:   { name: "研磨",     desc: "磨き上げて輝きを出す" },
   assemble: { name: "組立",     desc: "台座の上に骨を組み上げる", needs: "daiza" },
 };
-export const procLevel = (exp) => (exp >= 12 ? 3 : exp >= 4 ? 2 : 1);
+// 熟練の累計しきい値(Lv2/Lv3/Lv4)。様子見前提でここ一箇所で調整する。
+export const PROC_LV_EXP = [4, 12, 25];
+export const procLevel = (exp) => PROC_LV_EXP.reduce((lv, th) => (exp >= th ? lv + 1 : lv), 1);
 
 // ---------- レシピ (minLv: 必要熟練) ----------
 export const RECIPES = [
@@ -210,7 +212,7 @@ export const RECIPES = [
   { id: "r28", from: "s_nezukotsu", proc: "assemble", to: "s_nezuzen" },
   { id: "r29", from: "murasaki",    proc: "polish",   to: "s_murasaki" },
   { id: "r30", from: "ougon",       proc: "polish",   to: "s_ougon" },
-  { id: "r31", from: "shoudou",     proc: "polish",   to: "s_shoudou",    minLv: 3 },
+  { id: "r31", from: "shoudou",     proc: "polish",   to: "s_shoudou",    minLv: 4 },
 ];
 // 標本 → 最終工程(熟練Lv3の売価ボーナス用)
 export const SPEC_PROC = {};

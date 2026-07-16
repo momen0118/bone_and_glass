@@ -746,8 +746,7 @@ export default function BoneAndGlass() {
   const [showGallery, setShowGallery] = useState(false);
   const [showDecor, setShowDecor] = useState(false);
   const [toast, setToast] = useState(null);
-  const toastQ = useRef([]);       // 表示待ちのトースト列
-  const toastBusy = useRef(false); // 送り中フラグ
+  const toastTimer = useRef(null); // 表示タイマー(差し替え時にリセット)
   // 夜のカード送り: idx=表示中のステップ, sub=多段カードの表示済み行数, collapsed=「残りをまとめる」押下済み
   const [nightView, setNightView] = useState({ idx: 0, sub: 1, collapsed: false });
   // 洞窟解禁の朝のイベント行(その朝のあいだだけ表示)
@@ -802,17 +801,11 @@ export default function BoneAndGlass() {
     try { await storage.set(SAVE_KEY, JSON.stringify(ng)); } catch (e) {}
     setOpStep(0); // 新規開始のみOP演出を挟む(続きからでは出さない)
   };
-  // トーストはキュー化: 表示中に新規が来たら上書きせず順送り(採集結果の重なり対策)
-  const pumpToast = () => {
-    const next = toastQ.current.shift();
-    if (next === undefined) { toastBusy.current = false; setToast(null); return; }
-    toastBusy.current = true;
-    setToast(next);
-    setTimeout(pumpToast, 2400);
-  };
+  // トーストは後着優先の即時差し替え。差し替え時に表示タイマーをリセットし、常に規定時間フル表示する。
   const flash = (msg) => {
-    toastQ.current.push(msg);
-    if (!toastBusy.current) pumpToast();
+    setToast(msg);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => { setToast(null); toastTimer.current = null; }, 2400);
   };
 
   // ---- 朝 ----

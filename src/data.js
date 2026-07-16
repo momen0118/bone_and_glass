@@ -498,7 +498,7 @@ export const SETS = [
     desc: "夜の住人たちを並べて" },
   // 水晶のクラスター+紫水晶の晶柱+晶洞(黄鉄鉱は含めない)。貴婦人と老学者を招く
   { id: "set_stars", name: "星々の棚",   groups: [["s_suisho"], ["s_murasaki"], ["s_shoudou"]], invites: ["kifujin", "gakusha"],
-    desc: "三つの結晶を並べて" },
+    desc: "水晶、紫水晶、晶洞。三つの石が灯りを返す棚は、夜空の棚である。" },
 ];
 
 // ---------- 通り名 ----------

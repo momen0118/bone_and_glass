@@ -15,8 +15,9 @@ import {
   GAKUSEI_KOUHAI_LINE, GAKUSEI_GRAD, SWAMP_UNLOCK, CAVE_UNLOCK, SPEC_LORE,
   WORM, isWorm, wormId, baseId, WORM_CATS, specOf, CAMPHOR, mushiDiscover, MUSHIYA,
   moonPhase, MOON_OPEN, MOON_BOOST, ANA_ALIAS,
-  ORDER_UNLOCK_REP, ORDER_CHANCE, ORDER_REWARD_MULT, ORDER_EXPIRED_LOG,
+  ORDER_UNLOCK_REP, ORDER_CHANCE, ORDER_REWARD_MULT, ORDER_EXPIRED_LOG, ORDER_DECLINE,
   ORDER_CLIENTS, ORDER_FILTER, ORDER_LETTERS, ORDER_SITE_GATE, ORDER_RARE,
+  BUYOUT_CELEBRATE, SCENES, OOYA_ORDER,
   RENT, RENT_INTERVAL, MAX_AP,
 } from "./data.js";
 import { storage } from "./storage.js";
@@ -71,6 +72,14 @@ function newGame() {
     order: null,   // 受領済みの特注 { client, specId, qty, dueDay, reward }
     letter: null,  // 未受領の手紙 { client, specId, qty, term, reward, li }
     orderExpired: false, // その朝に期限切れが起きたか(冒頭ログ用)
+    // --- v6: 買い取り後のイベント列・廃坑 ---
+    buyoutDay: null,          // 店を買い取った日(イベント列の起点)
+    kifujinRumorDone: false,  // 貴婦人の噂(買い取り当日夜)の消化
+    celebrated: {},           // 買い取りの祝いセリフを消化した客層(客層ごと1回)
+    ooyaVisitDone: false,     // 大家の来訪(3日後夜)の消化
+    ooyaOrderState: "none",   // 大家の依頼: none(未発生) / active(受注中) / done(完了)
+    ooyaDelivered: {},        // 大家の依頼の部分納品済み数(specId → 数)
+    haikouUnlocked: false,    // 廃坑(採集地)の解禁
   };
 }
 const clampTrust = (t) => Math.max(-6, Math.min(6, t));
@@ -112,6 +121,16 @@ function migrate(loaded) {
   g.order = loaded.order || null;   // 旧セーブは特注なし
   g.letter = loaded.letter || null;
   g.orderExpired = false;
+  // v6: 買い取り後のイベント列・廃坑
+  g.kifujinRumorDone = !!loaded.kifujinRumorDone;
+  g.celebrated = loaded.celebrated || {};
+  g.ooyaVisitDone = !!loaded.ooyaVisitDone;
+  g.ooyaOrderState = loaded.ooyaOrderState || "none";
+  g.ooyaDelivered = loaded.ooyaDelivered || {};
+  g.haikouUnlocked = !!loaded.haikouUnlocked;
+  // 買い取り済みの旧セーブ: 翌日を「買い取り当日」とみなしてイベント列を開始する
+  g.buyoutDay = typeof loaded.buyoutDay === "number" ? loaded.buyoutDay
+    : (g.ownShop && !g.kifujinRumorDone ? g.day + 1 : null);
   return g;
 }
 // 特注の手紙を1通生成(条件を満たさなければ null)。基準価=basePrice(g, id)
@@ -238,10 +257,12 @@ function simulateNight(g) {
     + (phase === 4 ? 2 : 0) + (phase === 0 ? -2 : 0);
   visitors = Math.min(g.shelfSize + 2, Math.max(phase === 0 ? 1 : 0, visitors));
   const aliasCat = g.alias;
+  // 銘板の招き: 単数 invite / 複数 invites の両対応
+  const setInvites = (c) => sets.some((s) => (s.invites ? s.invites.includes(c.id) : s.invite === c.id));
   const pool = CUSTOMERS.filter((c) => g.rep >= c.minRep && (!c.flag || g[c.flag])).map((c) => {
     let w = c.weight;
     if (aliasCat && ALIASES[aliasCat].invite.includes(c.id)) w += 2;
-    if (sets.some((s) => s.invite === c.id)) w += 2;
+    if (setInvites(c)) w += 2;
     // 就職イベント後、学生は後輩に代替わり(buyに一言加わる)
     if (c.id === "gakusei" && g.gakuseiGraduated)
       c = { ...c, lines: { ...c.lines, buy: [...c.lines.buy, GAKUSEI_KOUHAI_LINE] } };
@@ -249,6 +270,7 @@ function simulateNight(g) {
   });
   let graduated = g.gakuseiGraduated;
   let graduatedTonight = false; // 就職イベントが起きた夜は学生を再抽選しない
+  const celebrated = { ...g.celebrated }; // 買い取りの祝いセリフ(客層ごと1回)
 
   const priceAt = (i) => {
     let p = basePrice(g, shelf[i]) * mode.mult;
@@ -259,6 +281,59 @@ function simulateNight(g) {
 
   // 匣の庭(銘板)発動中は学生の予算を+30%(隠し効果・UIには一切出さない)
   const gardenActive = sets.some((s) => s.id === "set_garden");
+
+  // 1人の客を応対する(棚・売上・評判・在庫を破壊的に更新し、ログを積む)。
+  // opts.tag=ログに足す追加フィールド。戻り値 { bought }
+  const serveCustomer = (c, opts = {}) => {
+    const bought = custBought[c.id] || 0;
+    const slots = shelf.map((id, i) => ({ id, i })).filter((s) => s.id && !isWorm(s.id) && s.i < g.shelfSize);
+    if (!slots.length) { log.push({ t: "misc", cid: c.id, text: `${c.name}が覗いたが、棚は空だった。`, line: null, ...(opts.tag || {}) }); return { bought: false }; }
+    const budget = c.id === "gakusei" && gardenActive ? Math.round(c.budget * 1.3) : c.budget;
+    const afford = slots.filter((s) => priceAt(s.i) >= (c.floor || 0) && priceAt(s.i) <= budget);
+    if (!afford.length) {
+      const line = custLine(c, bought, "poor");
+      log.push({ t: "misc", cid: c.id, text: `${c.name}「${line}」`, line, ...(opts.tag || {}) });
+      return { bought: false };
+    }
+    const favs = afford.filter((s) => {
+      const sp = SPECIMENS[s.id];
+      return sp.tags.some((t) => c.likesTags.includes(t)) || c.likesCats.includes(sp.cat);
+    });
+    let target, chance;
+    // 大家(客化): 黄鉄鉱の結晶が棚にあれば最優先で買う(唯一、安物を機嫌よく買う上客)
+    const ougon = c.id === "ooya" && afford.find((s) => s.id === "s_ougon");
+    if (ougon) { target = ougon; chance = 0.92; }
+    else if (favs.length) { target = pick(favs); chance = 0.85; }
+    else { target = pick(afford); chance = c.easyBuyer ? 0.75 : 0.5; }
+    chance = Math.min(0.97, chance * mode.buy + (g.decor.window ? 0.05 : 0));
+
+    if (Math.random() < chance) {
+      const price = priceAt(target.i);
+      const sp = SPECIMENS[target.id];
+      shelf[target.i] = null;
+      gold += price; sold++;
+      soldByCat[sp.cat] = (soldByCat[sp.cat] || 0) + 1;
+      custBought[c.id] = bought + 1;
+      rep += 1 + (sp.tags.includes("rare") ? 1 : 0) + mode.repBonus;
+      const big = price >= 400;
+      // 買い取りの祝い(翌日以降・購入成立時に1回だけ buyセリフを差し替える)
+      const line = opts.celebrateLine || (big ? custLine(c, bought, "big") : custLine(c, bought, "buy"));
+      log.push({ t: "sale", cid: c.id, big, text: `${c.name}「${line}」— ${sp.icon} ${sp.name}を ${price}G で購入。`, line, itemId: target.id, price, ...(opts.tag || {}) });
+      return { bought: true };
+    }
+    const line = custLine(c, bought, "pass");
+    log.push({ t: "misc", cid: c.id, text: `${c.name}「${line}」`, line, ...(opts.tag || {}) });
+    return { bought: false };
+  };
+
+  // 貴婦人の噂: 店買い取り当日の夜、開店直後の1人目を貴婦人に固定(抽選外・未解禁でも登場)。
+  // 演出(セリフ列)はUI側の全面カード送りで見せ、ここでは通常の買い物挙動に合流させる。
+  let kifujinRumor = false;
+  if (g.ownShop && g.buyoutDay != null && g.day === g.buyoutDay && !g.kifujinRumorDone) {
+    kifujinRumor = true;
+    const kf = CUSTOMERS.find((c) => c.id === "kifujin");
+    if (kf) serveCustomer(kf);
+  }
   // 学生の就職イベント: 条件を満たす夜は「来客列の先頭」で発生させる。
   // 開店一番、金持ちに棚を食い荒らされる前に、棚で最も表示価格の高い品を予算無視で買っていく。
   // (累計販売が閾値に達し、棚に商品が1点以上ある夜。棚が空の夜は持ち越し)
@@ -296,44 +371,11 @@ function simulateNight(g) {
     recent.push(c.id);
     // 就職イベントの起きた夜、以降の学生の抽選は無効にする(再抽選しない=その枠は空振り)
     if (c.id === "gakusei" && graduatedTonight) continue;
-    const bought = custBought[c.id] || 0;
-    // 通常客は虫食い品を一切見ない(棚の虫食いは対象外)
-    const slots = shelf.map((id, i) => ({ id, i })).filter((s) => s.id && !isWorm(s.id) && s.i < g.shelfSize);
-    if (!slots.length) { log.push({ t: "misc", cid: c.id, text: `${c.name}が覗いたが、棚は空だった。`, line: null }); continue; }
-
-    // 購入候補 = 表示価格が下限(客ごと)以上かつ予算以下。候補ゼロは従来のpass扱い
-    // 匣の庭が出ている夜は学生の予算だけ+30%(隠し効果)
-    const budget = c.id === "gakusei" && gardenActive ? Math.round(c.budget * 1.3) : c.budget;
-    const afford = slots.filter((s) => priceAt(s.i) >= (c.floor || 0) && priceAt(s.i) <= budget);
-    if (!afford.length) {
-      const line = custLine(c, bought, "poor");
-      log.push({ t: "misc", cid: c.id, text: `${c.name}「${line}」`, line });
-      continue;
-    }
-    const favs = afford.filter((s) => {
-      const sp = SPECIMENS[s.id];
-      return sp.tags.some((t) => c.likesTags.includes(t)) || c.likesCats.includes(sp.cat);
-    });
-    let target, chance;
-    if (favs.length) { target = pick(favs); chance = 0.85; }
-    else { target = pick(afford); chance = c.easyBuyer ? 0.75 : 0.5; }
-    chance = Math.min(0.97, chance * mode.buy + (g.decor.window ? 0.05 : 0));
-
-    if (Math.random() < chance) {
-      const price = priceAt(target.i);
-      const sp = SPECIMENS[target.id];
-      shelf[target.i] = null;
-      gold += price; sold++;
-      soldByCat[sp.cat] = (soldByCat[sp.cat] || 0) + 1;
-      custBought[c.id] = bought + 1;
-      rep += 1 + (sp.tags.includes("rare") ? 1 : 0) + mode.repBonus;
-      const big = price >= 400;
-      const line = big ? custLine(c, bought, "big") : custLine(c, bought, "buy");
-      log.push({ t: "sale", cid: c.id, big, text: `${c.name}「${line}」— ${sp.icon} ${sp.name}を ${price}G で購入。`, line, itemId: target.id, price });
-    } else {
-      const line = custLine(c, bought, "pass");
-      log.push({ t: "misc", cid: c.id, text: `${c.name}「${line}」`, line });
-    }
+    // 買い取り翌日以降、対象客層の初購入で祝いセリフを1回だけ差し込む
+    const celebrateLine = (g.ownShop && g.buyoutDay != null && g.day > g.buyoutDay
+      && !celebrated[c.id] && BUYOUT_CELEBRATE[c.id]) || null;
+    const res = serveCustomer(c, { celebrateLine });
+    if (celebrateLine && res.bought) celebrated[c.id] = true;
   }
   if (!visitors) log.push({ t: "misc", text: "今夜は誰も来なかった。硝子が静かに光っている。" });
 
@@ -487,7 +529,8 @@ function simulateNight(g) {
   }
   return { log, gold, rep, sold, rentLog, rentPaid, wageText, shelf, spec, soldByCat, custBought, offer,
     gakuseiGraduated: graduated, swampUnlocked,
-    camphor, mushiFirstDone, mushiFirstNight, mushiMorning, mushiSold, anaAlias };
+    camphor, mushiFirstDone, mushiFirstNight, mushiMorning, mushiSold, anaAlias,
+    celebrated, kifujinRumor };
 }
 
 // ---------- 画像 ----------
@@ -668,6 +711,10 @@ export default function BoneAndGlass() {
   const [burnConfirm, setBurnConfirm] = useState(false);
   // 特注の手紙を開いているか(羊皮紙面)
   const [showLetter, setShowLetter] = useState(false);
+  // 通常依頼の破棄「断りの手紙」確認ダイアログ
+  const [declineConfirm, setDeclineConfirm] = useState(false);
+  // タップ送りの全面演出(貴婦人の噂・大家の来訪・権利書)。{ id, step }
+  const [scene, setScene] = useState(null);
 
   useEffect(() => {
     (async () => {
@@ -760,7 +807,8 @@ export default function BoneAndGlass() {
   // 店の買い取り: 実行した瞬間、大家との専用イベント表示に切り替える
   const buyShop = () => {
     if (g.ownShop || g.gold < SHOP_BUYOUT) return;
-    setG({ ...g, gold: g.gold - SHOP_BUYOUT, ownShop: true });
+    // 買い取り当日を記録(この日の夜に貴婦人の噂、3日後の夜に大家の来訪が起きる)
+    setG({ ...g, gold: g.gold - SHOP_BUYOUT, ownShop: true, buyoutDay: g.day });
     setShowDecor(false);
     setBuyoutStep(0);
   };
@@ -834,8 +882,12 @@ export default function BoneAndGlass() {
       camphor: res.camphor, mushiFirstDone: res.mushiFirstDone,
       mushiFirstNight: res.mushiFirstNight, mushiMorning: res.mushiMorning,
       mushiSold: res.mushiSold, anaAlias: res.anaAlias,
+      celebrated: res.celebrated,
+      kifujinRumorDone: g.kifujinRumorDone || res.kifujinRumor,
     });
     setNightView({ idx: 0, sub: 1, collapsed: false });
+    // 貴婦人の噂: 開店直後、全面のタップ送り演出を挟む(演出後は通常の営業カードへ)
+    if (res.kifujinRumor) setScene({ id: "kifujinRumor", step: 0 });
   };
 
   // ---- 蒐集家との交渉 ----
@@ -883,22 +935,43 @@ export default function BoneAndGlass() {
   };
 
   // ---- 翌朝 ----
-  const nextDay = () => {
-    const day = g.day + 1;
+  // extra=翌朝の状態に上書きするフィールド(演出で確定した受注などを混ぜ込む)
+  const advanceDay = (extra = {}) => {
+    const src = { ...g, ...extra };
+    const day = src.day + 1;
     // 特注: 期限切れ判定(納期を過ぎた朝に消滅・評判-2)。放置された手紙は翌朝に流れる(無ペナルティ)
-    let order = g.order, rep = g.rep, orderExpired = false, letter = null;
+    let order = src.order, rep = src.rep, orderExpired = false, letter = null;
     if (order && day > order.dueDay) { order = null; rep = Math.max(0, rep - 2); orderExpired = true; }
     // 依頼を受けていない朝は、確率で手紙が1通届く(解禁評判以上・該当プールがあるとき)
-    if (!order && rep >= ORDER_UNLOCK_REP && Math.random() < ORDER_CHANCE) letter = rollOrderLetter({ ...g, rep });
+    if (!order && rep >= ORDER_UNLOCK_REP && Math.random() < ORDER_CHANCE) letter = rollOrderLetter({ ...src, rep });
     const ng = {
-      ...g, day, phase: "morning", ap: MAX_AP + (g.apprentice ? 1 : 0),
+      ...src, day, phase: "morning", ap: MAX_AP + (src.apprentice ? 1 : 0),
       nightLog: [], nightRent: null, craftLog: [], offer: null, offerResult: null,
-      collectorCd: Math.max(0, (g.collectorCd || 0) - 1),
+      collectorCd: Math.max(0, (src.collectorCd || 0) - 1),
       // 信頼は負のときだけ毎朝+0.5ずつ0へ回復(正の値は減衰しない)
-      trust: (g.trust || 0) < 0 ? Math.min(0, (g.trust || 0) + 0.5) : (g.trust || 0),
+      trust: (src.trust || 0) < 0 ? Math.min(0, (src.trust || 0) + 0.5) : (src.trust || 0),
       order, rep, letter, orderExpired,
     };
     setG(ng); save(ng);
+  };
+  const nextDay = () => {
+    // 大家の来訪: 買い取りから3日後の夜、閉店後にタップ送り演出を挟む(演出後に受注確定→翌朝へ)
+    if (g.ownShop && !g.ooyaVisitDone && g.buyoutDay != null && g.day === g.buyoutDay + 3) {
+      setScene({ id: "ooyaVisit", step: 0 });
+      return;
+    }
+    advanceDay();
+  };
+  // タップ送り演出を1段進める。末尾で演出ごとの後始末を行う
+  const advanceScene = () => {
+    if (!scene) return;
+    const seq = SCENES[scene.id].seq;
+    if (scene.step + 1 < seq.length) { setScene({ ...scene, step: scene.step + 1 }); return; }
+    const id = scene.id;
+    setScene(null);
+    // ooyaVisit: 演出終了=受注確定。そのまま翌朝へ進む。
+    // kifujinRumor(開店直後)・ooyaReward(納品時)は状態確定済みで、演出のみ。
+    if (id === "ooyaVisit") advanceDay({ ooyaVisitDone: true, ooyaOrderState: "active", ooyaDelivered: {} });
   };
   // ---- 特注: 受ける / 断る / 納品 ----
   const acceptOrder = () => {
@@ -906,6 +979,38 @@ export default function BoneAndGlass() {
     setG({ ...g, letter: null, order: { client: l.client, specId: l.specId, qty: l.qty, dueDay: g.day + l.term, reward: l.reward } });
   };
   const declineOrder = () => setG({ ...g, letter: null });
+  // 進行中の通常依頼を破棄「断りの手紙を出す」(評判-2固定・常連度不変・依頼消滅)
+  const abandonOrder = () => {
+    if (!g.order) return;
+    setG({ ...g, order: null, rep: Math.max(0, g.rep - ORDER_DECLINE.repPenalty) });
+    setDeclineConfirm(false);
+  };
+  // 大家の依頼の納品(倉庫から・部分納品可・虫食い不可)。4点すべて揃えば完了演出→廃坑解禁
+  const deliverOoyaOrder = () => {
+    if (g.ooyaOrderState !== "active") return;
+    const spec = { ...g.spec };
+    const delivered = { ...g.ooyaDelivered };
+    let moved = 0;
+    for (const [id, need] of OOYA_ORDER.items) {
+      const have = spec[id] || 0;
+      const remain = need - (delivered[id] || 0);
+      const take = Math.min(Math.max(0, remain), have); // 虫食い(w_接頭)は spec[id] に含まれない
+      if (take > 0) {
+        spec[id] -= take; if (spec[id] <= 0) delete spec[id];
+        delivered[id] = (delivered[id] || 0) + take;
+        moved += take;
+      }
+    }
+    if (!moved) return;
+    const complete = OOYA_ORDER.items.every(([id, need]) => (delivered[id] || 0) >= need);
+    if (complete) {
+      // 完了: 権利書=報酬のすべて(金銭・常連度は動かさない)。評判+2・廃坑解禁
+      setG({ ...g, spec, ooyaDelivered: delivered, ooyaOrderState: "done", haikouUnlocked: true, rep: g.rep + 2 });
+      setScene({ id: "ooyaReward", step: 0 });
+    } else {
+      setG({ ...g, spec, ooyaDelivered: delivered });
+    }
+  };
   const deliverOrder = () => {
     const o = g.order; if (!o) return;
     if ((g.spec[o.specId] || 0) < o.qty) return; // 倉庫在庫のみ・数量必須
@@ -967,6 +1072,10 @@ export default function BoneAndGlass() {
     + g.shelf.filter((x) => x && isWorm(x)).length;
   const knownSpecs = new Set(RECIPES.filter((r) => g.known.includes(r.id)).map((r) => r.to));
   const curSets = activeSets(g.shelf, g.shelfSize);
+  // 受注中の依頼(通常+大家)に必要な品種。陳列の在庫チップに ✉ を添える(可視化のみ)
+  const orderNeeds = new Set();
+  if (g.order) orderNeeds.add(g.order.specId);
+  if (g.ooyaOrderState === "active") OOYA_ORDER.items.forEach(([id]) => orderNeeds.add(id));
   const daysToRent = (RENT_INTERVAL - (g.day % RENT_INTERVAL)) % RENT_INTERVAL;
   const aliasCat = g.alias;
 
@@ -1241,8 +1350,44 @@ export default function BoneAndGlass() {
                     <span style={{ marginLeft: "auto", color: C.brass }}>報酬 {o.reward}G</span>
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    {!ready && <span style={{ fontSize: 11, color: C.dim }}>倉庫に {have}/{o.qty}</span>}
-                    <Btn primary={ready} disabled={!ready} onClick={deliverOrder} style={{ marginLeft: "auto" }}>納品する</Btn>
+                    <button onClick={() => setDeclineConfirm(true)}
+                      style={{ fontFamily: "inherit", cursor: "pointer", fontSize: 11, color: C.dim, background: "none", border: "none", padding: "4px 0", textDecoration: "underline", textUnderlineOffset: 3 }}>
+                      断りの手紙を出す
+                    </button>
+                    {!ready && <span style={{ fontSize: 11, color: C.dim, marginLeft: "auto" }}>倉庫に {have}/{o.qty}</span>}
+                    <Btn primary={ready} disabled={!ready} onClick={deliverOrder} style={{ marginLeft: ready ? "auto" : 0 }}>納品する</Btn>
+                  </div>
+                </div>
+              );
+            })()}
+            {/* 大家の依頼(無期限・破棄不可・部分納品可)。通常依頼と同じ様式・特別装飾なし */}
+            {g.ooyaOrderState === "active" && (() => {
+              const items = OOYA_ORDER.items.map(([id, need]) => {
+                const have = g.spec[id] || 0;
+                const done = g.ooyaDelivered[id] || 0;
+                return { id, need, have, done };
+              });
+              const complete = items.every((it) => it.done >= it.need);
+              const canDeliver = items.some((it) => it.done < it.need && it.have > 0);
+              return (
+                <div style={{ borderTop: `1px solid ${C.line}`, borderBottom: `1px solid ${C.line}`, padding: "10px 2px", display: "flex", flexDirection: "column", gap: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <Portrait cid="ooya" imgs={imgs} fileImgs={fileImgs} size={30} />
+                    <div style={{ fontSize: 13 }}>{OOYA_ORDER.name}</div>
+                    <div style={{ marginLeft: "auto", fontSize: 11, color: C.dim }}>納期 ──</div>
+                  </div>
+                  {items.map((it) => (
+                    <div key={it.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+                      <SpecIcon id={it.id} fileImgs={fileImgs} size={26} emojiSize={16} />
+                      <span>{SPECIMENS[it.id].name} × {it.need}</span>
+                      <span style={{ marginLeft: "auto", fontSize: 11, color: it.done >= it.need ? C.glass : C.dim }}>
+                        {it.done >= it.need ? "納品済" : `${it.done}/${it.need}${it.have > 0 ? `(倉庫${it.have})` : ""}`}
+                      </span>
+                    </div>
+                  ))}
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 12, color: C.brass }}>報酬 {OOYA_ORDER.reward}</span>
+                    <Btn primary={canDeliver} disabled={!canDeliver} onClick={deliverOoyaOrder} style={{ marginLeft: "auto" }}>納品する</Btn>
                   </div>
                 </div>
               );
@@ -1255,7 +1400,8 @@ export default function BoneAndGlass() {
               </div>
             )}
             {SITES.filter((s) =>
-              s.id === "shitsugen" ? g.swampUnlocked : s.id === "doukutsu" ? g.caveUnlocked : true
+              s.id === "shitsugen" ? g.swampUnlocked : s.id === "doukutsu" ? g.caveUnlocked
+              : s.id === "haikou" ? g.haikouUnlocked : true
             ).map((s) => {
               const siteBg = fileImgs && fileImgs.sites && fileImgs.sites[s.id];
               const inner = (
@@ -1457,11 +1603,16 @@ export default function BoneAndGlass() {
               </div>
               {curSets.length > 0 && (
                 <div style={{ marginTop: 8, borderTop: `1px solid ${C.line}`, paddingTop: 6, display: "flex", flexWrap: "wrap", gap: 6 }}>
-                  {curSets.map((s) => (
-                    <span key={s.id} style={{ fontSize: 11, color: C.brass, border: `1px solid ${C.brass}`, borderRadius: 3, padding: "1px 7px" }}>
-                      ✦ {s.name}{s.invite !== "collector" ? ` — ${CUSTOMERS.find((c) => c.id === s.invite).name}を呼ぶ` : " — 夜の気配"}
-                    </span>
-                  ))}
+                  {curSets.map((s) => {
+                    const inviteIds = s.invites || (s.invite ? [s.invite] : []);
+                    const label = inviteIds.includes("collector") ? "夜の気配"
+                      : inviteIds.map((id) => CUSTOMERS.find((c) => c.id === id).name).join("・") + "を呼ぶ";
+                    return (
+                      <span key={s.id} style={{ fontSize: 11, color: C.brass, border: `1px solid ${C.brass}`, borderRadius: 3, padding: "1px 7px" }}>
+                        ✦ {s.name} — {label}
+                      </span>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -1476,6 +1627,7 @@ export default function BoneAndGlass() {
                     return (
                       <Btn key={k} onClick={() => placeOnShelf(shelfPickFor, k)} style={{ fontSize: 12 }}>
                         <SpecIcon id={k} fileImgs={fileImgs} size={18} emojiSize={13} /> {specOf(k).name} ×{v}
+                        {orderNeeds.has(k) && <span style={{ marginLeft: 4 }}>✉</span>}
                         {!isWorm(k) && SPECIMENS[k].tags.map((t) => <TagChip key={t} t={t} />)}
                         {mk && <span style={{ color: C.glass, marginLeft: 4 }}>{mk}</span>}
                       </Btn>
@@ -1844,6 +1996,19 @@ export default function BoneAndGlass() {
         </div>
       )}
 
+      {/* 通常依頼の破棄「断りの手紙を出す」確認(独白形式・数値非表示) */}
+      {declineConfirm && (
+        <div onClick={() => setDeclineConfirm(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, zIndex: 65 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 8, padding: 18, maxWidth: 320, width: "100%" }}>
+            <div style={{ fontSize: 14, lineHeight: 2, color: C.ivory, marginBottom: 16 }}>{ORDER_DECLINE.confirm}</div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <Btn onClick={() => setDeclineConfirm(false)}>{ORDER_DECLINE.no}</Btn>
+              <Btn primary onClick={abandonOrder}>{ORDER_DECLINE.yes}</Btn>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 特注: 手紙(羊皮紙風の反転配色。ゲーム内で唯一の明色面)。ボタンは紙面の外(下の暗色領域)に置く */}
       {showLetter && g.letter && (() => {
         const l = g.letter;
@@ -1890,6 +2055,24 @@ export default function BoneAndGlass() {
             </div>
             <div style={{ marginTop: 26, minHeight: 76, maxWidth: 340, textAlign: "center", fontSize: 14, lineHeight: 2.1, color: step.t === "line" ? C.ivory : C.dim }}>
               {step.t === "line" ? `大家「${step.text}」` : step.text}
+            </div>
+            <div style={{ marginTop: 14, fontSize: 11, color: "#5a4f3d" }}>▼</div>
+          </div>
+        );
+      })()}
+
+      {/* ===== タップ送りの全面演出(貴婦人の噂・大家の来訪・権利書) ===== */}
+      {scene && (() => {
+        const def = SCENES[scene.id];
+        const seg = def.seq[scene.step];
+        const custName = def.cid === "kifujin" ? "貴婦人" : def.cid === "ooya" ? OOYA.name : "";
+        return (
+          <div onClick={advanceScene} style={{ position: "fixed", inset: 0, background: "rgba(10,8,6,0.96)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 28, zIndex: 70, cursor: "pointer" }}>
+            <div style={{ width: "58%", maxWidth: 260 }}>
+              <FramedPortrait cid={def.cid} imgs={imgs} fileImgs={fileImgs} width="100%" />
+            </div>
+            <div style={{ marginTop: 26, minHeight: 92, maxWidth: 340, textAlign: "center", fontSize: 14, lineHeight: 2.1, color: seg.t === "line" ? C.ivory : C.dim, letterSpacing: seg.t === "beat" ? "0.08em" : "normal" }}>
+              {seg.t === "line" ? `${custName}「${seg.text}」` : seg.text}
             </div>
             <div style={{ marginTop: 14, fontSize: 11, color: "#5a4f3d" }}>▼</div>
           </div>

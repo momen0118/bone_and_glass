@@ -33,11 +33,16 @@ export const MATERIALS = {
   ga:      { name: "枯葉蛾",     icon: "🍂" },
   hikarigoke: { name: "夜光苔",  icon: "✨" },
   fukurou: { name: "梟の亡骸",   icon: "🦉" },
+  // --- v6 追加(廃坑) ---
+  nezumi:   { name: "鼠の亡骸",     icon: "🐀" },
+  murasaki: { name: "紫水晶の原石", icon: "💜" },
+  ougon:    { name: "黄鉄鉱の塊",   icon: "🪙" },
+  shoudou:  { name: "晶洞",         icon: "🪨" },
   bin:     { name: "硝子瓶",     icon: "🫙", supply: true },
   waku:    { name: "真鍮の額縁", icon: "🖼️", supply: true },
   daiza:   { name: "黒檀の台座", icon: "◼️", supply: true },
 };
-export const MAT_ORDER = ["tori","chou","kabuto","koke","sakana","kai","kani","kurage","koumori","hebi","suisho","ammo","kaeru","tokage","ga","hikarigoke","fukurou","bin","waku","daiza"];
+export const MAT_ORDER = ["tori","chou","kabuto","koke","sakana","kai","kani","kurage","koumori","hebi","suisho","ammo","kaeru","tokage","ga","hikarigoke","fukurou","nezumi","murasaki","ougon","shoudou","bin","waku","daiza"];
 
 // ---------- 標本 ----------
 export const CAT_NAME = { bone: "骨格", insect: "昆虫", wet: "液浸", mineral: "鉱物", craft: "工芸" };
@@ -71,6 +76,12 @@ export const SPECIMENS = {
   s_hikariterra:{ name: "光る苔のテラリウム", icon: "✨", price: 300, cat: "craft", tags: ["fancy","rare"] },
   s_kaigaku:   { name: "貝殻の額装標本",   icon: "🖼️", price: 190, cat: "mineral", tags: ["fancy"] },
   s_kanikoura: { name: "磨き上げた甲羅",   icon: "🦀", price: 130, cat: "mineral", tags: [] },
+  // --- v6 追加(廃坑) ---
+  s_nezukotsu: { name: "鼠の頭骨",       icon: "🐀", price: 90,  cat: "bone",    tags: [] },
+  s_nezuzen:   { name: "鼠の全身骨格",   icon: "🐀", price: 270, cat: "bone",    tags: ["scholar"] },
+  s_murasaki:  { name: "紫水晶の晶柱",   icon: "💜", price: 240, cat: "mineral", tags: ["fancy"] },
+  s_ougon:     { name: "黄鉄鉱の結晶",   icon: "🪙", price: 100, cat: "mineral", tags: [] },
+  s_shoudou:   { name: "晶洞",           icon: "🪨", price: 550, cat: "mineral", tags: ["rare","fancy"] },
 };
 
 // ---------- 標本の一言説明(図鑑の詳細ビュー用) ----------
@@ -101,6 +112,11 @@ export const SPEC_LORE = {
   s_hikariterra: "月の無い晩、棚の隅で仄かに灯る。売るのが少し惜しい。",
   s_kaigaku: "波打ち際をひと箱に。貴婦人の客間で評判だという。",
   s_kanikoura: "磨き上げれば武具の面のよう。存外、頑丈である。",
+  s_nezukotsu: "小さくとも、牙の並びは獣のもの。坑道の先住者である。",
+  s_nezuzen: "這い、登り、駆けるための骨組み。暗がりの働き者の、精巧な設計。",
+  s_murasaki: "石の中に、夕暮れを閉じ込めたような色。貴人の棚によく映える。",
+  s_ougon: "金に見える。金ではない。それでも欲しがる者には、それで十分。",
+  s_shoudou: "ただの岩だと思っていた。割った者だけが、中の星空を知っている。",
 };
 
 // ---------- 虫食い・樟脳・蟲屋 ----------
@@ -147,7 +163,7 @@ export const moonPhase = (day) => (Math.floor((day - 1) / 2) + 1) % 7;
 // 開店時の一言(両端の相のみ。他の相は何も出さない)
 export const MOON_OPEN = { 4: "月が明るい。往来に人の影が多い。", 0: "月のない晩だ。通りは静かで、暗い。" };
 // 満月の晩に活性化する採集(採集地 → 抽選重みを2倍にする素材)
-export const MOON_BOOST = { umibe: ["kurage"], shitsugen: ["ga", "hikarigoke", "fukurou"], doukutsu: ["koumori"] };
+export const MOON_BOOST = { umibe: ["kurage"], shitsugen: ["ga", "hikarigoke", "fukurou"], doukutsu: ["koumori"], haikou: ["koumori"] };
 
 // ---------- 処理法 ----------
 export const PROCESSES = {
@@ -189,6 +205,12 @@ export const RECIPES = [
   { id: "r24", from: "hikarigoke",  proc: "preserve", to: "s_hikariterra", minLv: 2 },
   { id: "r25", from: "s_kaimigaki", proc: "frame",    to: "s_kaigaku",    minLv: 2 },
   { id: "r26", from: "kani",        proc: "polish",   to: "s_kanikoura",  minLv: 2 },
+  // --- v6(廃坑) ---
+  { id: "r27", from: "nezumi",      proc: "boil",     to: "s_nezukotsu" },
+  { id: "r28", from: "s_nezukotsu", proc: "assemble", to: "s_nezuzen" },
+  { id: "r29", from: "murasaki",    proc: "polish",   to: "s_murasaki" },
+  { id: "r30", from: "ougon",       proc: "polish",   to: "s_ougon" },
+  { id: "r31", from: "shoudou",     proc: "polish",   to: "s_shoudou",    minLv: 3 },
 ];
 // 標本 → 最終工程(熟練Lv3の売価ボーナス用)
 export const SPEC_PROC = {};
@@ -207,6 +229,8 @@ export const SITES = [
     table: [ ["koumori", 2], ["hebi", 3], ["suisho", 3], ["ammo", 2] ] },
   { id: "shitsugen", name: "霧の湿原", cost: 150, desc: "蛙・蜥蜴・蛾、稀に梟。遠出になる",
     table: [ ["kaeru", 3], ["tokage", 3], ["ga", 3], ["hikarigoke", 2], ["fukurou", 1] ] },
+  { id: "haikou", name: "廃坑", cost: 220, desc: "蝙蝠・鼠・鉱石。石の出る坑道",
+    table: [ ["koumori", 3], ["nezumi", 3], ["murasaki", 2], ["ougon", 2], ["shoudou", 1] ] },
 ];
 
 export const SUPPLY_SHOP = [
@@ -274,6 +298,15 @@ export const CUSTOMERS = [
       poor: ["学生時代の癖で、つい値札から見ちゃうな"],
       big: ["初任給、こういうことに使いたかったんです"],
     } },
+  // 廃坑解禁後、夜の来客抽選に稀に混ざる大家(家賃徴収の大家とは別挙動)。
+  // 予算・下限は好事家相当。黄鉄鉱の結晶が棚にあれば最優先で買う(App側で処理)。
+  { id: "ooya", name: "大家", icon: "🗝️", minRep: 0, budget: 520, weight: 1, flag: "haikouUnlocked",
+    likesTags: [], likesCats: [],
+    lines: {
+      buy: ["……近くを通っただけだ", "ふん、悪くねえ", "釣りはいい。……いや、やっぱりよこせ"],
+      pass: ["冷やかしだよ、冷やかし", "今日は目当てがねえな"],
+      big: ["……たまには、な"],
+    } },
 ];
 
 // 就職イベント後、学生(後輩)の buy に加わる一言
@@ -301,6 +334,11 @@ export const ORDER_UNLOCK_REP = 15;   // 解禁評判
 export const ORDER_CHANCE = 1 / 3;    // 依頼を受けていない朝に手紙が届く確率
 export const ORDER_REWARD_MULT = 1.4; // 報酬倍率(基準価×数量×これ)
 export const ORDER_EXPIRED_LOG = "約束の品は、届かなかった。";
+// 通常依頼の破棄「断りの手紙を出す」(独白形式・数値非表示。評判-2固定・常連度不変)
+export const ORDER_DECLINE = {
+  confirm: "依頼を断ろうか。……少し、評判が下がるだろう。",
+  yes: "手紙を出す", no: "やめておく", repPenalty: 2,
+};
 // 依頼人の抽選重み(若い研究者は就職イベント後のみ)
 export const ORDER_CLIENTS = [
   { id: "gakusei", weight: 2 },
@@ -325,6 +363,8 @@ export const ORDER_SITE_GATE = {
   s_kaerubin: "swampUnlocked", s_kaerukotsu: "swampUnlocked", s_tokagebin: "swampUnlocked",
   s_ga: "swampUnlocked", s_gagaku: "swampUnlocked", s_fukuroukotsu: "swampUnlocked",
   s_fukurouzen: "swampUnlocked", s_hikariterra: "swampUnlocked",
+  s_nezukotsu: "haikouUnlocked", s_nezuzen: "haikouUnlocked", s_murasaki: "haikouUnlocked",
+  s_ougon: "haikouUnlocked", s_shoudou: "haikouUnlocked",
 };
 // レア素材由来の品は「長期・大口依頼」。納期を加算し報酬倍率を上書きする(明細には特別な注記をしない)
 export const ORDER_RARE = {
@@ -383,6 +423,49 @@ export const OOYA = {
 };
 export const SHOP_BUYOUT = 15000;
 
+// ---------- 店買い取り後のイベント列(v6) ----------
+// 買い取り翌日以降、各客層の購入成立時に1回だけ buyセリフの代わりに差し込む祝い
+export const BUYOUT_CELEBRATE = {
+  gakusei: "聞きました、ここ、本当に店主さんの店になったんですね……! あ、これください。記念に",
+  gakusha: "店を買ったそうだな。結構。腰を据えた店は、標本の質に出る",
+  koujika: "店ごと手に入れたと聞いた。……いい買い物は、店構えにも品にも出るものだ",
+  wakate:  "先輩たちが噂してましたよ、あの店ついに独立したって。……あ、今日は給料日です",
+};
+// タップ送り(入れ替え式)の演出。cid=肖像 / seq=1画面1行。t: narr=地の文 / line=セリフ / beat=全面の一拍
+export const SCENES = {
+  // 2-1. 貴婦人の噂(買い取り当日の夜・開店直後の1人目)
+  kifujinRumor: { cid: "kifujin", seq: [
+    { t: "narr", text: "開店してすぐ、見慣れた笑みが戸口に立った。" },
+    { t: "line", text: "ごきげんよう。……あら、いい顔。" },
+    { t: "line", text: "お茶会でうかがいましたのよ。お店を、お買いになったって。……ふふ、わたくしのことのように嬉しい。" },
+    { t: "line", text: "わたくし、こういうお話は聞き逃しませんの。" },
+    { t: "line", text: "それでね——これもお茶会の話なのだけれど。あの大家さん、廃坑の権利書をお持ちなんですって。" },
+    { t: "line", text: "石の出る坑道だそうよ。……鉱物の並ぶ棚、楽しみにしていてよ。" },
+  ] },
+  // 3-1. 大家の来訪(買い取りから3日後・閉店後)
+  ooyaVisit: { cid: "ooya", seq: [
+    { t: "beat", text: "——閉店後。" },
+    { t: "narr", text: "遠慮というものを知らない叩き方で、戸が鳴った。" },
+    { t: "line", text: "よう。……なんだその顔は。安心しろ、家賃はもう取らねえよ。" },
+    { t: "line", text: "廃坑の権利書の話、耳に入ってるんだろ? ……その顔は、入ってるな。" },
+    { t: "line", text: "欲しいか? くれてやるよ。——タダでとは言ってねえがなあ?" },
+    { t: "line", text: "水晶の房をふたつ。光る苔の匣をひとつ。それと、梟の骨を組んだやつだ。揃いで持ってこい。" },
+    { t: "line", text: "贈答の品だ、丁寧に扱えよ。……妙な勘繰りはするな。" },
+    { t: "line", text: "急がねえ。だが忘れるな。——権利書の話は、それからだ。" },
+  ] },
+  // 3-2. 大家の依頼・納品完了時の一幕
+  ooyaReward: { cid: "ooya", seq: [
+    { t: "narr", text: "品を検分した大家は、懐から折り畳んだ紙を出した。" },
+    { t: "line", text: "……確かに。ほら、権利書だ。坑道はもうお前のもんだ。" },
+    { t: "line", text: "崩れても知らねえぞ。……気をつけて掘れよ。" },
+  ] },
+};
+// 大家の依頼(無期限・破棄不可・部分納品可・完了判定は4点すべて)
+export const OOYA_ORDER = {
+  items: [ ["s_suisho", 2], ["s_hikariterra", 1], ["s_fukurouzen", 1] ],
+  name: "大家の依頼", reward: "廃坑の権利書",
+};
+
 export const COLLECTOR = {
   id: "collector", name: "外套の蒐集家", icon: "🕯️",
   appear: "……夜分に失礼。硝子の光が見えたものでね。",
@@ -413,6 +496,9 @@ export const SETS = [
     desc: "緑の匣と、乾いた虫" },
   { id: "set_night", name: "夜の帳",     groups: [["s_fukuroukotsu", "s_fukurouzen"], ["s_koumori", "s_ga", "s_gagaku"]], invite: "collector",
     desc: "夜の住人たちを並べて" },
+  // 水晶のクラスター+紫水晶の晶柱+晶洞(黄鉄鉱は含めない)。貴婦人と老学者を招く
+  { id: "set_stars", name: "星々の棚",   groups: [["s_suisho"], ["s_murasaki"], ["s_shoudou"]], invites: ["kifujin", "gakusha"],
+    desc: "三つの結晶を並べて" },
 ];
 
 // ---------- 通り名 ----------

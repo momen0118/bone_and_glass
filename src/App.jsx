@@ -19,6 +19,7 @@ import {
   ORDER_CLIENTS, ORDER_FILTER, ORDER_LETTERS, ORDER_SITE_GATE, ORDER_RARE,
   BUYOUT_CELEBRATE, SCENES, OOYA_ORDER,
   APPRENTICE_INTRO, APPRENTICE_HIRE_FIRST, MONTH_REMARKS, RUMORS, RUMOR_CHANCE, OP,
+  ENDING_REP, HANAKAGO, BANSHO,
   RENT, RENT_INTERVAL, MAX_AP,
 } from "./data.js";
 import { storage } from "./storage.js";
@@ -85,6 +86,11 @@ function newGame() {
     ooyaOrderState: "none",   // 大家の依頼: none(未発生) / active(受注中) / done(完了)
     ooyaDelivered: {},        // 大家の依頼の部分納品済み数(specId → 数)
     haikouUnlocked: false,    // 廃坑(採集地)の解禁
+    // --- v7: 万象の夜(エンディング) ---
+    endingDone: false,        // 蒐集家の夜(エンディング演出)の消化
+    hanakagoState: "none",    // 硝子の花籠: none(未入手)/ material(素材所持)/ done(完成)
+    banshoAlias: false,       // 通り名「万象堂」の獲得
+    banshoMorning: false,     // その朝に万象堂の冒頭ログを出すか(翌朝クリア)
   };
 }
 const clampTrust = (t) => Math.max(-6, Math.min(6, t));
@@ -141,10 +147,22 @@ function migrate(loaded) {
   g.ooyaOrderState = loaded.ooyaOrderState || "none";
   g.ooyaDelivered = loaded.ooyaDelivered || {};
   g.haikouUnlocked = !!loaded.haikouUnlocked;
+  // v7: エンディング
+  g.endingDone = !!loaded.endingDone;
+  g.hanakagoState = loaded.hanakagoState || "none";
+  g.banshoAlias = !!loaded.banshoAlias;
+  g.banshoMorning = !!loaded.banshoMorning;
   // 買い取り済みの旧セーブ: 翌日を「買い取り当日」とみなしてイベント列を開始する
   g.buyoutDay = typeof loaded.buyoutDay === "number" ? loaded.buyoutDay
     : (g.ownShop && !g.kifujinRumorDone ? g.day + 1 : null);
   return g;
+}
+// エンディング条件: 花籠を除く全標本を発見済み かつ 評判ENDING_REP以上(未消化)。trust・出現率は不問
+function endingReady(g) {
+  if (g.endingDone || g.rep < ENDING_REP) return false;
+  const goal = Object.keys(SPECIMENS).filter((id) => id !== HANAKAGO).length;
+  const found = new Set(RECIPES.filter((r) => g.known.includes(r.id) && r.to !== HANAKAGO).map((r) => r.to)).size;
+  return found >= goal;
 }
 // 特注の手紙を1通生成(条件を満たさなければ null)。基準価=basePrice(g, id)
 function rollOrderLetter(g) {
@@ -538,9 +556,10 @@ function simulateNight(g) {
   let wageText = null;
   if (g.apprentice) { gold -= 50; wageText = "見習いに日当 50G を払った。"; }
 
-  // 蒐集家の来訪判定(trustが負のときのみ出現率が減衰。正でも上げない)
+  // 蒐集家の来訪判定(trustが負のときのみ出現率が減衰。正でも上げない)。
+  // エンディングの夜は通常の蒐集家来訪をスキップ(万象の夜の演出が単独で出る)
   let offer = null;
-  if (g.rep >= 18 && (g.collectorCd || 0) <= 0) {
+  if (g.rep >= 18 && (g.collectorCd || 0) <= 0 && !endingReady(g)) {
     const nightSet = sets.some((s) => s.id === "set_night");
     let appearRate = 0.22 + (nightSet ? 0.15 : 0);
     const trust = g.trust || 0;
@@ -1033,6 +1052,11 @@ export default function BoneAndGlass() {
     setG(ng); save(ng);
   };
   const nextDay = () => {
+    // 万象の夜(エンディング): 条件を満たした夜の閉店後に単独で発生(通常の蒐集家・大家来訪より優先)
+    if (endingReady(g)) {
+      setScene({ id: "endingNight", step: 0 });
+      return;
+    }
     // 大家の来訪: 買い取りから3日後の夜、閉店後にタップ送り演出を挟む(演出後に受注確定→翌朝へ)
     if (g.ownShop && !g.ooyaVisitDone && g.buyoutDay != null && g.day === g.buyoutDay + 3) {
       setScene({ id: "ooyaVisit", step: 0 });
@@ -1050,6 +1074,11 @@ export default function BoneAndGlass() {
     // ooyaVisit: 演出終了=受注確定。そのまま翌朝へ進む。
     // kifujinRumor(開店直後)・ooyaReward(納品時)は状態確定済みで、演出のみ。
     if (id === "ooyaVisit") advanceDay({ ooyaVisitDone: true, ooyaOrderState: "active", ooyaDelivered: {} });
+    // endingNight: 演出終了で消化。翌朝、倉庫に「深海の硝子海綿」が入っている。
+    else if (id === "endingNight") {
+      advanceDay({ endingDone: true, hanakagoState: "material", inv: { ...g.inv, kaimen: (g.inv.kaimen || 0) + 1 } });
+    }
+    // hanakagoDone(花籠完成): 演出のみ(状態はdoCraftで確定済み)
   };
   // ---- 特注: 受ける / 断る / 納品 ----
   const acceptOrder = () => {
@@ -2190,12 +2219,16 @@ export default function BoneAndGlass() {
       {scene && (() => {
         const def = SCENES[scene.id];
         const seg = def.seq[scene.step];
-        const custName = def.cid === "kifujin" ? "貴婦人" : def.cid === "ooya" ? OOYA.name : "";
+        const custName = def.cid === "kifujin" ? "貴婦人" : def.cid === "ooya" ? OOYA.name : def.cid === "collector" ? COLLECTOR.name : "";
+        // 肖像は cid があるときのみ。portraitFrom 以降のステップで初めて出す(蒐集家の夜の大ビネット初出)
+        const showPortrait = def.cid && scene.step >= (def.portraitFrom || 0);
         return (
           <div onClick={advanceScene} style={{ position: "fixed", inset: 0, background: "rgba(10,8,6,0.96)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 28, zIndex: 70, cursor: "pointer" }}>
-            <div style={{ width: "58%", maxWidth: 260 }}>
-              <FramedPortrait cid={def.cid} imgs={imgs} fileImgs={fileImgs} width="100%" />
-            </div>
+            {showPortrait && (
+              <div key="portrait" style={{ width: "58%", maxWidth: 260, animation: FADE }}>
+                <FramedPortrait cid={def.cid} imgs={imgs} fileImgs={fileImgs} width="100%" />
+              </div>
+            )}
             <div key={scene.step} style={{ marginTop: 26, minHeight: 92, maxWidth: 340, textAlign: "center", fontSize: 14, lineHeight: 2.1, color: seg.t === "line" ? C.ivory : C.dim, letterSpacing: seg.t === "beat" ? "0.08em" : "normal", animation: FADE }}>
               {seg.t === "line" ? `${custName}「${seg.text}」` : seg.text}
             </div>

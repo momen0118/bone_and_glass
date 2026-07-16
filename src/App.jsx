@@ -18,6 +18,7 @@ import {
   ORDER_UNLOCK_REP, ORDER_CHANCE, ORDER_REWARD_MULT, ORDER_EXPIRED_LOG, ORDER_DECLINE,
   ORDER_CLIENTS, ORDER_FILTER, ORDER_LETTERS, ORDER_SITE_GATE, ORDER_RARE,
   BUYOUT_CELEBRATE, SCENES, OOYA_ORDER,
+  APPRENTICE_INTRO, MONTH_REMARKS,
   RENT, RENT_INTERVAL, MAX_AP,
 } from "./data.js";
 import { storage } from "./storage.js";
@@ -57,6 +58,9 @@ function newGame() {
     alias: null, aliasHistory: [],
     offer: null, offerResult: null, collectorCd: 0,
     apprentice: false,
+    apprenticeSeen: false,   // 見習いの押しかけイベントを消化したか
+    apprenticeMorning: false, // その朝に押しかけイベント行を出すか(翌朝クリア)
+    made: {},                // 過去に一度でも仕立てた標本(初回は「2個仕立てる」を出さない)
     trust: 0, // 蒐集家の信頼(内部値、-6〜+6。画面には出さない)
     lastRent: RENT, // 前回支払った家賃額
     ownShop: false, // 店の買い取り
@@ -101,6 +105,12 @@ function migrate(loaded) {
   g.offer = null; g.offerResult = null;
   g.collectorCd = loaded.collectorCd || 0;
   g.apprentice = !!loaded.apprentice;
+  // 見習い: 旧セーブで評判20以上(解禁済み)なら押しかけイベントは消化済み扱い(スキップ)
+  g.apprenticeSeen = loaded.apprenticeSeen !== undefined ? !!loaded.apprenticeSeen : (loaded.rep || 0) >= 20;
+  g.apprenticeMorning = !!loaded.apprenticeMorning;
+  // 製作履歴: 旧セーブは「図鑑の発見済み=製作済み」で初期化(発見済みが初回制限に掛からないように)
+  g.made = loaded.made || {};
+  if (!loaded.made) RECIPES.forEach((r) => { if ((loaded.known || []).includes(r.id)) g.made[r.to] = true; });
   g.trust = typeof loaded.trust === "number" ? clampTrust(loaded.trust) : 0;
   // 通り名を持たない旧セーブは、従来の判定(最多カテゴリ5個以上)で引き継ぐ
   if (!("alias" in loaded)) g.alias = aliasOf(g.soldByCat);
@@ -371,8 +381,9 @@ function simulateNight(g) {
     recent.push(c.id);
     // 就職イベントの起きた夜、以降の学生の抽選は無効にする(再抽選しない=その枠は空振り)
     if (c.id === "gakusei" && graduatedTonight) continue;
-    // 買い取り翌日以降、対象客層の初購入で祝いセリフを1回だけ差し込む
-    const celebrateLine = (g.ownShop && g.buyoutDay != null && g.day > g.buyoutDay
+    // 買い取り当日の夜(貴婦人の噂演出より後の客)以降、対象客層の初購入で祝いセリフを1回だけ差し込む。
+    // 貴婦人は抽選外で先に応対済みなので、この抽選ループの客はすべて「噂より後」に当たる。
+    const celebrateLine = (g.ownShop && g.buyoutDay != null && g.day >= g.buyoutDay
       && !celebrated[c.id] && BUYOUT_CELEBRATE[c.id]) || null;
     const res = serveCustomer(c, { celebrateLine });
     if (celebrateLine && res.bought) celebrated[c.id] = true;
@@ -715,6 +726,8 @@ export default function BoneAndGlass() {
   const [declineConfirm, setDeclineConfirm] = useState(false);
   // タップ送りの全面演出(貴婦人の噂・大家の来訪・権利書)。{ id, step }
   const [scene, setScene] = useState(null);
+  // 大家の依頼カードの開閉(デフォルト折りたたみ)
+  const [ooyaCardOpen, setOoyaCardOpen] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -790,7 +803,7 @@ export default function BoneAndGlass() {
     const shelf = g.shelf.map((x) => (x && isWorm(x) ? null : x));
     setG({ ...g, spec, shelf });
     setBurnConfirm(false);
-    flash("虫食いの品を、竈にくべた。よく燃えた。");
+    flash("竈にくべた。よく燃えた。");
   };
   const expandShelf = () => {
     const next = g.shelfSize + 1, cost = SHELF_EXPAND[next];
@@ -830,7 +843,8 @@ export default function BoneAndGlass() {
     const lvUp = procLevel(exp[r.proc]) > procLevel(g.procExp[r.proc] || 0);
     const made = SPECIMENS[r.to];
     const craftLog = [{ text: `${p.name} → ${made.icon} ${made.name}${n === 2 ? " ×2" : ""}${isNew ? "(新発見!)" : ""}`, isNew }, ...g.craftLog].slice(0, 6);
-    setG({ ...g, inv, spec, known, ap: g.ap - 1, craftLog, procExp: exp });
+    const madeHist = g.made[r.to] ? g.made : { ...g.made, [r.to]: true }; // 製作履歴(初回制限の判定用)
+    setG({ ...g, inv, spec, known, ap: g.ap - 1, craftLog, procExp: exp, made: madeHist });
     setSel(null);
     if (isNew) flash(`新しい標本を作り出した — ${made.name}`);
     else if (lvUp) flash(`${p.name}の腕が上がった(Lv${procLevel(exp[r.proc])})`);
@@ -944,6 +958,8 @@ export default function BoneAndGlass() {
     if (order && day > order.dueDay) { order = null; rep = Math.max(0, rep - 2); orderExpired = true; }
     // 依頼を受けていない朝は、確率で手紙が1通届く(解禁評判以上・該当プールがあるとき)
     if (!order && rep >= ORDER_UNLOCK_REP && Math.random() < ORDER_CHANCE) letter = rollOrderLetter({ ...src, rep });
+    // 見習いの押しかけ: 評判20到達の翌朝、一度だけイベント行を出し見習い欄を解禁
+    const apprenticeMorning = !src.apprenticeSeen && rep >= 20;
     const ng = {
       ...src, day, phase: "morning", ap: MAX_AP + (src.apprentice ? 1 : 0),
       nightLog: [], nightRent: null, craftLog: [], offer: null, offerResult: null,
@@ -951,7 +967,9 @@ export default function BoneAndGlass() {
       // 信頼は負のときだけ毎朝+0.5ずつ0へ回復(正の値は減衰しない)
       trust: (src.trust || 0) < 0 ? Math.min(0, (src.trust || 0) + 0.5) : (src.trust || 0),
       order, rep, letter, orderExpired,
+      apprenticeMorning, apprenticeSeen: src.apprenticeSeen || apprenticeMorning,
     };
+    setOoyaCardOpen(false); // 大家の依頼は毎朝デフォルト折りたたみに戻す
     setG(ng); save(ng);
   };
   const nextDay = () => {
@@ -1255,7 +1273,7 @@ export default function BoneAndGlass() {
         累計売上 {g.totalEarn}G / 販売数 {g.totalSold}点<br />
         図鑑 {knownSpecs.size}/{Object.keys(SPECIMENS).length} 種 / 銘板 {g.knownSets.length}/{SETS.length} / 評判 {g.rep}<br />
         <span style={{ color: C.dim, fontSize: 12 }}>
-          {g.rep >= 40 ? "この街で知らぬ者のない標本商になった。" : g.rep >= 20 ? "常連のつく、良い店になってきた。" : "まだ小さな店だが、硝子は毎晩磨かれている。"}
+          {MONTH_REMARKS[Math.min(g.day / 30, 4) - 1]}
         </span>
       </div>
     </Panel>
@@ -1293,6 +1311,12 @@ export default function BoneAndGlass() {
         {/* ===== 朝 ===== */}
         {g.phase === "morning" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {g.apprenticeMorning && (
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13, lineHeight: 1.9, color: C.ivory, borderLeft: `2px solid ${C.brass}`, paddingLeft: 8 }}>
+                <span style={{ fontSize: 16 }}>🚪</span>
+                <span>{APPRENTICE_INTRO}</span>
+              </div>
+            )}
             {g.mushiMorning && (
               <div style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13, lineHeight: 1.8, color: C.red, borderLeft: `2px solid ${C.red}`, paddingLeft: 8 }}>
                 <span style={{ fontSize: 16 }}>🐛</span>
@@ -1360,20 +1384,30 @@ export default function BoneAndGlass() {
                 </div>
               );
             })()}
-            {/* 大家の依頼(無期限・破棄不可・部分納品可)。通常依頼と同じ様式・特別装飾なし */}
+            {/* 大家の依頼(無期限・破棄不可・部分納品可)。デフォルト折りたたみ・特別装飾なし */}
             {g.ooyaOrderState === "active" && (() => {
               const items = OOYA_ORDER.items.map(([id, need]) => {
                 const have = g.spec[id] || 0;
                 const done = g.ooyaDelivered[id] || 0;
                 return { id, need, have, done };
               });
-              const complete = items.every((it) => it.done >= it.need);
               const canDeliver = items.some((it) => it.done < it.need && it.have > 0);
+              // 折りたたみ時: 一行のみ(大家の依頼 ▸ 納期 ──)
+              if (!ooyaCardOpen) return (
+                <div onClick={() => setOoyaCardOpen(true)}
+                  style={{ cursor: "pointer", borderTop: `1px solid ${C.line}`, borderBottom: `1px solid ${C.line}`, padding: "10px 2px", display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+                  <span>{OOYA_ORDER.name}</span>
+                  <span style={{ fontSize: 11, color: C.dim }}>▸</span>
+                  <span style={{ marginLeft: "auto", fontSize: 11, color: C.dim }}>納期 ──</span>
+                </div>
+              );
+              // 展開時: 明細(4品・進捗・納品ボタン)。見出しタップで畳む
               return (
                 <div style={{ borderTop: `1px solid ${C.line}`, borderBottom: `1px solid ${C.line}`, padding: "10px 2px", display: "flex", flexDirection: "column", gap: 8 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div onClick={() => setOoyaCardOpen(false)} style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}>
                     <Portrait cid="ooya" imgs={imgs} fileImgs={fileImgs} size={30} />
                     <div style={{ fontSize: 13 }}>{OOYA_ORDER.name}</div>
+                    <span style={{ fontSize: 11, color: C.dim }}>▾</span>
                     <div style={{ marginLeft: "auto", fontSize: 11, color: C.dim }}>納期 ──</div>
                   </div>
                   {items.map((it) => (
@@ -1537,8 +1571,8 @@ export default function BoneAndGlass() {
                       {sel && possible && (
                         <div style={{ display: "flex", gap: 5, marginTop: 6, flexWrap: "wrap" }}>
                           <Btn primary={!disabled} disabled={disabled} onClick={() => doCraft(r, 1)} style={{ fontSize: 12, padding: "5px 10px", whiteSpace: "nowrap" }}>仕立てる</Btn>
-                          {/* Lv3特典は到達するまで見せない(未解放要素を明かさない) */}
-                          {lv >= 3 && (
+                          {/* Lv3特典は到達するまで見せない。かつ初めての品(製作履歴なし)は「2個仕立てる」を出さない */}
+                          {lv >= 3 && r && g.made[r.to] && (
                             <Btn disabled={!canDouble} onClick={() => doCraft(r, 2)} style={{ fontSize: 12, padding: "5px 10px", whiteSpace: "nowrap" }}>2個仕立てる</Btn>
                           )}
                         </div>
@@ -1970,7 +2004,7 @@ export default function BoneAndGlass() {
           <Btn onClick={() => setShowGallery(true)} style={FOOT_BTN}>画廊</Btn>
           <Btn onClick={() => setShowDecor(true)} style={FOOT_BTN}>調度屋</Btn>
           <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
-            {g.phase === "morning" && <Btn primary onClick={() => { setCaveEvent(null); setG({ ...g, phase: "workshop", mushiMorning: null }); }} style={FOOT_BTN}>工房へ →</Btn>}
+            {g.phase === "morning" && <Btn primary onClick={() => { setCaveEvent(null); setG({ ...g, phase: "workshop", mushiMorning: null, apprenticeMorning: false }); }} style={FOOT_BTN}>工房へ →</Btn>}
             {g.phase === "workshop" && <Btn primary onClick={() => { setSel(null); setG({ ...g, phase: "shelf" }); }} style={FOOT_BTN}>陳列へ →</Btn>}
             {g.phase === "shelf" && (
               <>

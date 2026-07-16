@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 
 // ============================================================
 // 骨と硝子の店 — Os et Vitrum — v2
@@ -18,7 +18,7 @@ import {
   ORDER_UNLOCK_REP, ORDER_CHANCE, ORDER_REWARD_MULT, ORDER_EXPIRED_LOG, ORDER_DECLINE,
   ORDER_CLIENTS, ORDER_FILTER, ORDER_LETTERS, ORDER_SITE_GATE, ORDER_RARE,
   BUYOUT_CELEBRATE, SCENES, OOYA_ORDER,
-  APPRENTICE_INTRO, MONTH_REMARKS, RUMORS, RUMOR_CHANCE, OP,
+  APPRENTICE_INTRO, APPRENTICE_HIRE_FIRST, MONTH_REMARKS, RUMORS, RUMOR_CHANCE, OP,
   RENT, RENT_INTERVAL, MAX_AP,
 } from "./data.js";
 import { storage } from "./storage.js";
@@ -58,8 +58,9 @@ function newGame() {
     alias: null, aliasHistory: [],
     offer: null, offerResult: null, collectorCd: 0,
     apprentice: false,
-    apprenticeSeen: false,   // 見習いの押しかけイベントを消化したか
-    apprenticeMorning: false, // その朝に押しかけイベント行を出すか(翌朝クリア)
+    apprenticeSeen: false,   // 見習いの募集(貼り紙)イベントを消化したか
+    apprenticeMorning: false, // その朝に貼り紙イベント行を出すか(翌朝クリア)
+    apprenticeHiredOnce: false, // 初めて雇った瞬間の若者トーストを出したか
     made: {},                // 過去に一度でも仕立てた標本(初回は「2個仕立てる」を出さない)
     trust: 0, // 蒐集家の信頼(内部値、-6〜+6。画面には出さない)
     lastRent: RENT, // 前回支払った家賃額
@@ -108,6 +109,8 @@ function migrate(loaded) {
   // 見習い: 旧セーブで評判20以上(解禁済み)なら押しかけイベントは消化済み扱い(スキップ)
   g.apprenticeSeen = loaded.apprenticeSeen !== undefined ? !!loaded.apprenticeSeen : (loaded.rep || 0) >= 20;
   g.apprenticeMorning = !!loaded.apprenticeMorning;
+  // 既に見習いを雇った経験のある旧セーブは、若者トーストを消化済み扱い(雇用中なら既に見たはず)
+  g.apprenticeHiredOnce = loaded.apprenticeHiredOnce !== undefined ? !!loaded.apprenticeHiredOnce : !!loaded.apprentice;
   // 製作履歴: 旧セーブは「図鑑の発見済み=製作済み」で初期化(発見済みが初回制限に掛からないように)
   g.made = loaded.made || {};
   if (!loaded.made) RECIPES.forEach((r) => { if ((loaded.known || []).includes(r.id)) g.made[r.to] = true; });
@@ -743,6 +746,8 @@ export default function BoneAndGlass() {
   const [showGallery, setShowGallery] = useState(false);
   const [showDecor, setShowDecor] = useState(false);
   const [toast, setToast] = useState(null);
+  const toastQ = useRef([]);       // 表示待ちのトースト列
+  const toastBusy = useRef(false); // 送り中フラグ
   // 夜のカード送り: idx=表示中のステップ, sub=多段カードの表示済み行数, collapsed=「残りをまとめる」押下済み
   const [nightView, setNightView] = useState({ idx: 0, sub: 1, collapsed: false });
   // 洞窟解禁の朝のイベント行(その朝のあいだだけ表示)
@@ -789,15 +794,26 @@ export default function BoneAndGlass() {
   const loadSave = async () => {
     try {
       const r = await storage.get(SAVE_KEY);
-      if (r && r.value) { setG(migrate(JSON.parse(r.value))); setScreen("game"); }
-    } catch (e) { setToast("記録が読み込めなかった…"); }
+      if (r && r.value) { const mg = migrate(JSON.parse(r.value)); setG(mg); setOoyaCardOpen(ooyaOrderReady(mg)); setScreen("game"); }
+    } catch (e) { flash("記録が読み込めなかった…"); }
   };
   const startNew = async () => {
     const ng = newGame(); setG(ng); setScreen("game");
     try { await storage.set(SAVE_KEY, JSON.stringify(ng)); } catch (e) {}
     setOpStep(0); // 新規開始のみOP演出を挟む(続きからでは出さない)
   };
-  const flash = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2400); };
+  // トーストはキュー化: 表示中に新規が来たら上書きせず順送り(採集結果の重なり対策)
+  const pumpToast = () => {
+    const next = toastQ.current.shift();
+    if (next === undefined) { toastBusy.current = false; setToast(null); return; }
+    toastBusy.current = true;
+    setToast(next);
+    setTimeout(pumpToast, 2400);
+  };
+  const flash = (msg) => {
+    toastQ.current.push(msg);
+    if (!toastBusy.current) pumpToast();
+  };
 
   // ---- 朝 ----
   const gather = (site) => {
@@ -891,8 +907,13 @@ export default function BoneAndGlass() {
     else if (lvUp) flash(`${p.name}の腕が上がった(Lv${procLevel(exp[r.proc])})`);
   };
 
+  // 大家の依頼: 4品すべて倉庫に揃っているか(部分納品分も加味)
+  const ooyaOrderReady = (st) => st.ooyaOrderState === "active" &&
+    OOYA_ORDER.items.every(([id, need]) => ((st.ooyaDelivered && st.ooyaDelivered[id]) || 0) + ((st.spec && st.spec[id]) || 0) >= need);
+
   // ---- 夕 ----
   const placeOnShelf = (slotIdx, specId) => {
+    const y = window.scrollY; // 配置パネルが閉じて頁が縮んでもスクロール位置を保つ
     const shelf = [...g.shelf]; const spec = { ...g.spec };
     if (shelf[slotIdx]) spec[shelf[slotIdx]] = (spec[shelf[slotIdx]] || 0) + 1;
     if (specId) { spec[specId] -= 1; if (spec[specId] <= 0) delete spec[specId]; }
@@ -908,6 +929,8 @@ export default function BoneAndGlass() {
     });
     setG({ ...g, shelf, spec, knownSets });
     setShelfPickFor(null);
+    // 再レイアウト後にスクロール位置を復元(縮んだ分は自動でクランプされる)
+    requestAnimationFrame(() => requestAnimationFrame(() => window.scrollTo(0, y)));
   };
 
   // ---- 開店 ----
@@ -986,7 +1009,9 @@ export default function BoneAndGlass() {
   // ---- 見習い ----
   const toggleApprentice = () => {
     const hire = !g.apprentice;
-    setG({ ...g, apprentice: hire, ap: MAX_AP + (hire ? 1 : 0) });
+    const firstHire = hire && !g.apprenticeHiredOnce;
+    setG({ ...g, apprentice: hire, ap: MAX_AP + (hire ? 1 : 0), apprenticeHiredOnce: g.apprenticeHiredOnce || hire });
+    if (firstHire) flash(APPRENTICE_HIRE_FIRST); // 初めて雇った瞬間の若者(一度きり)
   };
 
   // ---- 翌朝 ----
@@ -1010,7 +1035,8 @@ export default function BoneAndGlass() {
       order, rep, letter, orderExpired,
       apprenticeMorning, apprenticeSeen: src.apprenticeSeen || apprenticeMorning,
     };
-    setOoyaCardOpen(false); // 大家の依頼は毎朝デフォルト折りたたみに戻す
+    // 大家の依頼: 4品すべて倉庫に揃った朝は自動で開く。揃っていなければ畳む。
+    setOoyaCardOpen(ooyaOrderReady(ng));
     setG(ng); save(ng);
   };
   const nextDay = () => {
@@ -1135,6 +1161,12 @@ export default function BoneAndGlass() {
   const orderNeeds = new Set();
   if (g.order) orderNeeds.add(g.order.specId);
   if (g.ooyaOrderState === "active") OOYA_ORDER.items.forEach(([id]) => orderNeeds.add(id));
+  // 陳列在庫の固定ソート: 分類順(骨格→昆虫→液浸→鉱物→工芸)→ 同分類内は基準価の降順
+  const CAT_SORT = ["bone", "insect", "wet", "mineral", "craft"];
+  const shelfStock = [...specEntries].sort((a, b) => {
+    const d = CAT_SORT.indexOf(SPECIMENS[baseId(a[0])].cat) - CAT_SORT.indexOf(SPECIMENS[baseId(b[0])].cat);
+    return d || basePrice(g, b[0]) - basePrice(g, a[0]);
+  });
   const daysToRent = (RENT_INTERVAL - (g.day % RENT_INTERVAL)) % RENT_INTERVAL;
   const aliasCat = g.alias;
 
@@ -1176,6 +1208,10 @@ export default function BoneAndGlass() {
   const moonOffset = moonOpenLine ? 1 : 0;
   const custSeen = Math.max(0, Math.min(custCards.length, nightView.idx - moonOffset));
   const foldedCards = [...custCards.slice(custSeen), ...(rentCard ? [rentCard] : [])];
+  // 一度きりのイベントカード(就職=grad / 蟲屋初回=line3)は「まとめる」でも潰さず個別カードで残す
+  const isEventCard = (l) => !!l.grad || !!l.line3;
+  const foldedEvents = foldedCards.filter(isEventCard);
+  const foldedNormals = foldedCards.filter((l) => !isEventCard(l));
   // 現行の一覧ログ形式(まとめ表示・サマリで使う)
   const nightLogLine = (l, i) => (
     <div key={i} style={{
@@ -1354,7 +1390,7 @@ export default function BoneAndGlass() {
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {g.apprenticeMorning && (
               <div style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13, lineHeight: 1.9, color: C.ivory, borderLeft: `2px solid ${C.brass}`, paddingLeft: 8 }}>
-                <span style={{ fontSize: 16 }}>🚪</span>
+                <span style={{ fontSize: 16 }}>📄</span>
                 <span>{APPRENTICE_INTRO}</span>
               </div>
             )}
@@ -1552,7 +1588,7 @@ export default function BoneAndGlass() {
 
             <Panel>
               <div style={{ fontSize: 11, color: C.dim, marginBottom: 6 }}>作業台に載せる</div>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", maxHeight: 92, overflowY: "auto", paddingBottom: 2 }}>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", maxHeight: 220, overflowY: "auto", paddingBottom: 2 }}>
                 {[...invEntries.filter(([k]) => !MATERIALS[k].supply), ...specEntries.filter(([k]) => craftables(k).length)].map(([k, v]) => {
                   const mk = SPECIMENS[k] ? nextMark(k) : null;
                   return (
@@ -1714,7 +1750,7 @@ export default function BoneAndGlass() {
                 <div style={{ fontSize: 11, color: C.dim, marginBottom: 6 }}>棚 {shelfPickFor + 1} に置くもの</div>
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                   {g.shelf[shelfPickFor] && <Btn onClick={() => placeOnShelf(shelfPickFor, null)} style={{ fontSize: 12 }}>下げる</Btn>}
-                  {specEntries.map(([k, v]) => {
+                  {shelfStock.map(([k, v]) => {
                     const mk = nextMark(k);
                     return (
                       <Btn key={k} onClick={() => placeOnShelf(shelfPickFor, k)} style={{ fontSize: 12 }}>
@@ -1785,12 +1821,15 @@ export default function BoneAndGlass() {
         })()}
         {g.phase === "night" && !nightInSteps && (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {/* まとめた場合: 残りの客+家賃を一覧ログ形式で */}
-            {nightView.collapsed && foldedCards.length > 0 && (
+            {/* まとめた場合: 一度きりのイベントカードは個別カードで残し、通常客だけ一覧ログに畳む */}
+            {nightView.collapsed && foldedEvents.map((l, i) => (
+              <div key={"ev" + i}>{nightCardPanel(l, 99)}</div>
+            ))}
+            {nightView.collapsed && foldedNormals.length > 0 && (
               <Panel>
                 <div style={{ fontSize: 11, color: C.dim, marginBottom: 8, letterSpacing: "0.2em" }}>そのあとの客</div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                  {foldedCards.map(nightLogLine)}
+                  {foldedNormals.map(nightLogLine)}
                 </div>
               </Panel>
             )}

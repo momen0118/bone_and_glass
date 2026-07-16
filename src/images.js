@@ -36,7 +36,7 @@ export const PORTRAIT_VIGNETTE = { // 大楕円(バストアップ・頭上に�
   gakusei:    { scale: 1.65, oy: 20 },
   gakusha:    { scale: 1.5, oy: 20 },
   koujika:    { scale: 1.4, oy: 24 },
-  kifujin:    { scale: 1.7, oy: 16 },
+  kifujin:    { scale: 1.55, oy: 18 },
   collector:  { scale: 1.6, oy: 18 },
   ooya:       { scale: 1.65, oy: 18 },
   wakate:     { scale: 1.65, oy: 18 },

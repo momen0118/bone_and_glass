@@ -629,7 +629,7 @@ const MoonIcon = ({ day, fileImgs, size = 14 }) => {
   );
 };
 const Panel = ({ children, style }) => (
-  <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6, padding: 12, ...style }}>{children}</div>
+  <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 0, padding: 12, ...style }}>{children}</div>
 );
 const Btn = ({ children, onClick, disabled, primary, style }) => (
   <button onClick={onClick} disabled={disabled}
@@ -643,7 +643,7 @@ const Btn = ({ children, onClick, disabled, primary, style }) => (
     }}>{children}</button>
 );
 const TagChip = ({ t }) => (
-  <span style={{ fontSize: 10, border: `1px solid ${C.brass}`, color: C.brass, borderRadius: 3, padding: "0 4px", marginLeft: 4 }}>{TAG_NAME[t]}</span>
+  <span style={{ fontSize: 10, border: `1px solid ${C.brass}`, color: C.brass, borderRadius: 0, padding: "0 4px", marginLeft: 4 }}>{TAG_NAME[t]}</span>
 );
 // 肖像の絵文字フォールバック
 const portraitFallback = (cid) =>
@@ -1221,7 +1221,7 @@ export default function BoneAndGlass() {
       borderLeft: `2px solid ${l.big ? "#e0b96a" : l.t === "sale" ? C.brass : l.t === "rent" ? C.red : l.t === "alias" || l.t === "event" ? C.brass : C.line}`,
       paddingLeft: 8,
       background: l.big ? "rgba(201,161,94,0.08)" : "transparent",
-      borderRadius: l.big ? 4 : 0, paddingTop: l.big ? 4 : 0, paddingBottom: l.big ? 4 : 0,
+      borderRadius: 0, paddingTop: l.big ? 4 : 0, paddingBottom: l.big ? 4 : 0,
     }}>
       {l.cid && <Portrait cid={l.cid} imgs={imgs} fileImgs={fileImgs} size={30} />}
       <span>{l.text}</span>
@@ -1244,7 +1244,7 @@ export default function BoneAndGlass() {
         background: l.big && l.grad ? "#282013" : C.panel,
       }}>
         {l.t === "rent" && (
-          <div style={{ position: "absolute", top: 6, left: 6, zIndex: 1, fontSize: 10, color: C.dim, letterSpacing: "0.06em", background: "rgba(20,17,13,0.85)", padding: "1px 6px", borderRadius: 3 }}>閉店後</div>
+          <div style={{ position: "absolute", top: 6, left: 6, zIndex: 1, fontSize: 10, color: C.dim, letterSpacing: "0.06em", background: "rgba(20,17,13,0.85)", padding: "1px 6px", borderRadius: 0 }}>閉店後</div>
         )}
         <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
           <FramedPortrait cid={l.cid} imgs={imgs} fileImgs={fileImgs} />
@@ -1292,7 +1292,7 @@ export default function BoneAndGlass() {
     const skyUrl = fileImgs && fileImgs.sky && (ph === 4 ? fileImgs.sky.full : ph === 0 ? fileImgs.sky.new : null);
     if (!skyUrl) return <Panel style={{ animation: FADE }}>{nightBeatPanel(text)}</Panel>;
     return (
-      <div style={{ border: `1px solid ${C.brass}`, borderRadius: 6, overflow: "hidden", background: C.panel, boxShadow: "0 0 14px rgba(201,161,94,0.12)", animation: FADE }}>
+      <div style={{ border: `1px solid ${C.brass}`, borderRadius: 0, overflow: "hidden", background: C.panel, boxShadow: "0 0 14px rgba(201,161,94,0.12)", animation: FADE }}>
         {/* 上部: 空画像を全幅背景で。cover+FILE_ZOOM.sky で外周の白フチ・黒台紙を枠外へ。角丸はカード枠に追従 */}
         <div style={{ aspectRatio: "16 / 9", overflow: "hidden", background: "#0e0b08" }}>
           <img src={skyUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", transform: `scale(${FILE_ZOOM.sky})` }} />
@@ -1632,7 +1632,7 @@ export default function BoneAndGlass() {
                       <span style={{ color: possible && sel ? C.brass : C.ivory }}>{p.name}</span>
                       <span style={{ fontSize: 10, color: C.dim, marginLeft: 5 }}>Lv{lv}</span>
                       {r && (r.minLv || 1) >= 2 && (
-                        <span style={{ fontSize: 10, marginLeft: 5, padding: "0 4px", borderRadius: 3, border: `1px solid ${lvOk ? C.line : C.red}`, color: lvOk ? C.dim : C.red, whiteSpace: "nowrap" }}>要Lv{r.minLv}</span>
+                        <span style={{ fontSize: 10, marginLeft: 5, padding: "0 4px", borderRadius: 0, border: `1px solid ${lvOk ? C.line : C.red}`, color: lvOk ? C.dim : C.red, whiteSpace: "nowrap" }}>要Lv{r.minLv}</span>
                       )}
                       {sel && possible && p.needs && (
                         <div style={{ fontSize: 10, color: (g.inv[p.needs] || 0) > 0 ? C.glass : C.red, marginTop: 2 }}>要 {itemIcon(p.needs)}{itemName(p.needs)}(所持{g.inv[p.needs] || 0})</div>
@@ -1736,7 +1736,7 @@ export default function BoneAndGlass() {
                     const label = inviteIds.includes("collector") ? "夜の気配"
                       : inviteIds.map((id) => CUSTOMERS.find((c) => c.id === id).name).join("・") + "を呼ぶ";
                     return (
-                      <span key={s.id} style={{ fontSize: 11, color: C.brass, border: `1px solid ${C.brass}`, borderRadius: 3, padding: "1px 7px" }}>
+                      <span key={s.id} style={{ fontSize: 11, color: C.brass, border: `1px solid ${C.brass}`, borderRadius: 0, padding: "1px 7px" }}>
                         ✦ {s.name} — {label}
                       </span>
                     );
@@ -1859,7 +1859,7 @@ export default function BoneAndGlass() {
         {/* ===== 図鑑(タブ付き) ===== */}
         {showBook && (
           <div onClick={() => setShowBook(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, zIndex: 50 }}>
-            <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.brass}`, borderRadius: 8, padding: 16, maxWidth: 480, width: "100%", maxHeight: "82vh", overflowY: "auto" }}>
+            <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.brass}`, borderRadius: 4, padding: 16, maxWidth: 480, width: "100%", maxHeight: "82vh", overflowY: "auto" }}>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10, alignItems: "center" }}>
                 <div style={{ display: "flex", gap: 6 }}>
                   {[["spec", "標本"], ["plate", "銘板"], ["alias", "通り名"]].map(([k, n]) => (
@@ -1948,7 +1948,7 @@ export default function BoneAndGlass() {
           const url = fileImgs && fileImgs.specimens && fileImgs.specimens[bookDetail];
           return (
             <div onClick={() => setBookDetail(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, zIndex: 55 }}>
-              <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.brass}`, borderRadius: 8, padding: 16, maxWidth: 380, width: "100%", maxHeight: "82vh", overflowY: "auto" }}>
+              <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.brass}`, borderRadius: 4, padding: 16, maxWidth: 380, width: "100%", maxHeight: "82vh", overflowY: "auto" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                   <div style={{ fontSize: 15, letterSpacing: "0.1em" }}>{s.name}</div>
                   <button onClick={() => setBookDetail(null)} style={{ background: "none", border: "none", color: C.dim, cursor: "pointer", fontFamily: "inherit" }}>閉じる</button>
@@ -1983,7 +1983,7 @@ export default function BoneAndGlass() {
         {/* ===== 調度屋(棚増設・内装) ===== */}
         {showDecor && (
           <div onClick={() => setShowDecor(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, zIndex: 50 }}>
-            <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.brass}`, borderRadius: 8, padding: 16, maxWidth: 480, width: "100%", maxHeight: "82vh", overflowY: "auto" }}>
+            <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.brass}`, borderRadius: 4, padding: 16, maxWidth: 480, width: "100%", maxHeight: "82vh", overflowY: "auto" }}>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
                 <div style={{ letterSpacing: "0.25em", color: C.brass, fontSize: 13 }}>調度屋 — 店の誂え</div>
                 <button onClick={() => setShowDecor(false)} style={{ background: "none", border: "none", color: C.dim, cursor: "pointer", fontFamily: "inherit" }}>閉じる</button>
@@ -2019,7 +2019,7 @@ export default function BoneAndGlass() {
         {/* ===== 画廊(画像設定) ===== */}
         {showGallery && (
           <div onClick={() => setShowGallery(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, zIndex: 50 }}>
-            <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.brass}`, borderRadius: 8, padding: 16, maxWidth: 480, width: "100%", maxHeight: "82vh", overflowY: "auto" }}>
+            <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.brass}`, borderRadius: 4, padding: 16, maxWidth: 480, width: "100%", maxHeight: "82vh", overflowY: "auto" }}>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
                 <div style={{ letterSpacing: "0.25em", color: C.brass, fontSize: 13 }}>画廊 — 版画の掛け替え</div>
                 <button onClick={() => setShowGallery(false)} style={{ background: "none", border: "none", color: C.dim, cursor: "pointer", fontFamily: "inherit" }}>閉じる</button>
@@ -2088,7 +2088,7 @@ export default function BoneAndGlass() {
       {g.phase === "night" && nightInSteps && (
         <div style={{ position: "fixed", left: 0, right: 0, bottom: "calc(70px + env(safe-area-inset-bottom, 0px))", zIndex: 40, pointerEvents: "none" }}>
           <div style={{ maxWidth: 560, margin: "0 auto", padding: "0 12px", display: "flex", justifyContent: "flex-end" }}>
-            <div style={{ pointerEvents: "auto", background: "rgba(31,26,19,0.95)", border: `1px solid ${C.brass}`, borderRadius: 4, padding: "5px 10px", fontSize: 12, color: C.brass, fontVariantNumeric: "tabular-nums" }}>
+            <div style={{ pointerEvents: "auto", background: "rgba(31,26,19,0.95)", border: `1px solid ${C.brass}`, borderRadius: 0, padding: "5px 10px", fontSize: 12, color: C.brass, fontVariantNumeric: "tabular-nums" }}>
               売上 {nightEarnSoFar} G
             </div>
           </div>
@@ -2118,7 +2118,7 @@ export default function BoneAndGlass() {
       {/* 焚き付けの確認ダイアログ */}
       {burnConfirm && (
         <div onClick={() => setBurnConfirm(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, zIndex: 65 }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.red}`, borderRadius: 8, padding: 18, maxWidth: 320, width: "100%" }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.red}`, borderRadius: 4, padding: 18, maxWidth: 320, width: "100%" }}>
             <div style={{ fontSize: 14, lineHeight: 1.9, color: C.ivory, marginBottom: 16 }}>虫食いの品{wormCount}点を、竈にくべる。戻らない。</div>
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
               <Btn onClick={() => setBurnConfirm(false)}>やめる</Btn>
@@ -2131,7 +2131,7 @@ export default function BoneAndGlass() {
       {/* 通常依頼の破棄「断りの手紙を出す」確認(独白形式・数値非表示) */}
       {declineConfirm && (
         <div onClick={() => setDeclineConfirm(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, zIndex: 65 }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 8, padding: 18, maxWidth: 320, width: "100%" }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 4, padding: 18, maxWidth: 320, width: "100%" }}>
             <div style={{ fontSize: 14, lineHeight: 2, color: C.ivory, marginBottom: 16 }}>{ORDER_DECLINE.confirm}</div>
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
               <Btn onClick={() => setDeclineConfirm(false)}>{ORDER_DECLINE.no}</Btn>
@@ -2171,7 +2171,7 @@ export default function BoneAndGlass() {
       })()}
 
       {toast && (
-        <div style={{ position: "fixed", bottom: "calc(68px + env(safe-area-inset-bottom, 0px))", left: "50%", transform: "translateX(-50%)", background: C.panelHi, border: `1px solid ${C.brass}`, color: C.ivory, borderRadius: 6, padding: "8px 14px", fontSize: 13, zIndex: 60, maxWidth: "90%", boxShadow: "0 4px 18px rgba(0,0,0,0.5)" }}>
+        <div style={{ position: "fixed", bottom: "calc(68px + env(safe-area-inset-bottom, 0px))", left: "50%", transform: "translateX(-50%)", background: C.panelHi, border: `1px solid ${C.brass}`, color: C.ivory, borderRadius: 0, padding: "8px 14px", fontSize: 13, zIndex: 60, maxWidth: "90%", boxShadow: "0 4px 18px rgba(0,0,0,0.5)" }}>
           {toast}
         </div>
       )}
@@ -2221,7 +2221,7 @@ export default function BoneAndGlass() {
             <div key={opStep} style={{ width: "100%", maxWidth: 400, animation: FADE }}>
               {imgUrl ? (
                 // 画像+地の文(月の独白と同じ様式: カード内背景+下部に地の文)
-                <div style={{ border: `1px solid ${C.brass}`, borderRadius: 6, overflow: "hidden", background: C.panel, boxShadow: "0 0 14px rgba(201,161,94,0.12)" }}>
+                <div style={{ border: `1px solid ${C.brass}`, borderRadius: 0, overflow: "hidden", background: C.panel, boxShadow: "0 0 14px rgba(201,161,94,0.12)" }}>
                   <div style={{ aspectRatio: "16 / 9", overflow: "hidden", background: "#0e0b08" }}>
                     <img src={imgUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", transform: `scale(${FILE_ZOOM.op})` }} />
                   </div>

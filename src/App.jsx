@@ -668,7 +668,7 @@ const FramedPortrait = ({ cid, imgs, fileImgs, width = "40%" }) => {
       <div style={{ aspectRatio: "4 / 5", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center",
         WebkitMaskImage: VIGNETTE, maskImage: VIGNETTE }}>
         {src
-          ? <img src={src} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center 40%", transform: `scale(${zoom})`, filter: "sepia(0.3) contrast(1.05) brightness(0.98)" }} />
+          ? <img src={src} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center 46%", transform: `scale(${zoom})`, filter: "sepia(0.3) contrast(1.05) brightness(0.98)" }} />
           : <span style={{ fontSize: 52 }}>{fb}</span>}
       </div>
     </div>
@@ -696,7 +696,17 @@ const SpecIcon = ({ id, fileImgs, size = 20, emojiSize, style }) => {
       <img src={url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", transform: `scale(${specTrim(bid)})` }} />
     </span>
   );
-  return <span style={{ fontSize: emojiSize || Math.round(size * 0.85), lineHeight: 1, ...(isWorm(id) ? { filter: "grayscale(0.4)", opacity: 0.85 } : null), ...style }}>{SPECIMENS[bid].icon}</span>;
+  // 絵文字フォールバックも画像と同じ size×size ボックスを占有(横並びの接地線・頭を揃える)。
+  // 中身は下端寄せで、画像品(全面)と絵文字品の足元が板の上辺で揃う。
+  return (
+    <span style={{
+      width: size, height: size, display: "inline-flex", alignItems: "flex-end", justifyContent: "center",
+      verticalAlign: "middle", flexShrink: 0, lineHeight: 1,
+      ...(isWorm(id) ? { filter: "grayscale(0.4)", opacity: 0.85 } : null), ...style,
+    }}>
+      <span style={{ fontSize: emojiSize || Math.round(size * 0.85), lineHeight: 1 }}>{SPECIMENS[bid].icon}</span>
+    </span>
+  );
 };
 
 // ============================================================
@@ -1633,7 +1643,7 @@ export default function BoneAndGlass() {
                             }}>
                             {id ? (
                               <>
-                                <SpecIcon id={id} fileImgs={fileImgs} size={48} emojiSize={28} />
+                                <SpecIcon id={id} fileImgs={fileImgs} size={48} emojiSize={40} />
                                 <div style={{ fontSize: 11, textAlign: "center", lineHeight: 1.25, color: isWorm(id) ? C.dim : C.ivory }}>{specOf(id).name}</div>
                                 {/* 値札: 品物の足元、板の上に置かれた小札(スクエア) */}
                                 <div style={{ fontSize: 12, color: inSet ? C.brass : bonus ? C.glass : C.brass, background: "rgba(20,17,13,0.6)", padding: "2px 7px", fontVariantNumeric: "tabular-nums" }}>

@@ -1844,28 +1844,29 @@ export default function BoneAndGlass() {
         </div>
       )}
 
-      {/* 特注: 手紙(羊皮紙風の反転配色。ゲーム内で唯一の明色面) */}
+      {/* 特注: 手紙(羊皮紙風の反転配色。ゲーム内で唯一の明色面)。ボタンは紙面の外(下の暗色領域)に置く */}
       {showLetter && g.letter && (() => {
         const l = g.letter;
         const body = ORDER_LETTERS[l.client][l.li].replace("{item}", SPECIMENS[l.specId].name);
-        const ink = C.panelHi, paper = C.ivory, rule = "rgba(42,35,24,0.25)", seal = "#8f4a3c"; // seal=封蝋色
+        const ink = C.panelHi, paper = C.ivory, rule = "rgba(42,35,24,0.25)";
         return (
           <div onClick={() => setShowLetter(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, zIndex: 66 }}>
-            <div onClick={(e) => e.stopPropagation()} style={{ background: paper, color: ink, maxWidth: 380, width: "100%", maxHeight: "84vh", overflowY: "auto", padding: "24px 20px", boxShadow: "0 8px 30px rgba(0,0,0,0.6)", fontFamily: "Georgia, 'Yu Mincho', serif" }}>
-              {/* 1. 手紙本文 */}
-              <div style={{ fontSize: 14, lineHeight: 2.05 }}>{body}</div>
-              {/* 2. 罫線 */}
-              <div style={{ borderTop: `1px solid ${rule}`, margin: "18px 0 12px" }} />
-              {/* 3. 明細(事務表記) */}
-              <div style={{ fontSize: 12.5, lineHeight: 2.0, color: "rgba(42,35,24,0.85)", letterSpacing: "0.02em" }}>
-                {SPECIMENS[l.specId].name} × {l.qty} / 納期 {l.term}日 / 報酬 {l.reward}G
+            <div onClick={(e) => e.stopPropagation()} style={{ maxWidth: 380, width: "100%", display: "flex", flexDirection: "column" }}>
+              {/* 紙面: 本文+罫線+明細のみ(手紙にボタンは印刷されていない) */}
+              <div style={{ background: paper, color: ink, maxHeight: "72vh", overflowY: "auto", padding: "24px 20px", boxShadow: "0 8px 30px rgba(0,0,0,0.6)", fontFamily: "Georgia, 'Yu Mincho', serif" }}>
+                {/* 1. 手紙本文 */}
+                <div style={{ fontSize: 14, lineHeight: 2.05 }}>{body}</div>
+                {/* 2. 罫線 */}
+                <div style={{ borderTop: `1px solid ${rule}`, margin: "18px 0 12px" }} />
+                {/* 3. 明細(事務表記) */}
+                <div style={{ fontSize: 12.5, lineHeight: 2.0, color: "rgba(42,35,24,0.85)", letterSpacing: "0.02em" }}>
+                  {SPECIMENS[l.specId].name} × {l.qty} / 納期 {l.term}日 / 報酬 {l.reward}G
+                </div>
               </div>
-              {/* 4. ボタン(受けるは封蝋色で強調)。行と紙面下端の間に余白 */}
-              <div style={{ display: "flex", gap: 10, marginTop: 20, marginBottom: 14 }}>
-                <button onClick={() => { declineOrder(); setShowLetter(false); }}
-                  style={{ fontFamily: "inherit", cursor: "pointer", flex: 1, background: "transparent", color: ink, border: `1px solid ${rule}`, borderRadius: 4, padding: "9px 0", fontSize: 14 }}>断る</button>
-                <button onClick={() => { acceptOrder(); setShowLetter(false); }}
-                  style={{ fontFamily: "inherit", cursor: "pointer", flex: 1, background: seal, color: paper, border: "none", borderRadius: 4, padding: "9px 0", fontSize: 14 }}>受ける</button>
+              {/* ボタンは通常のゲームUI様式で紙面の外へ */}
+              <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
+                <Btn onClick={() => { declineOrder(); setShowLetter(false); }} style={{ flex: 1 }}>断る</Btn>
+                <Btn primary onClick={() => { acceptOrder(); setShowLetter(false); }} style={{ flex: 1 }}>受ける</Btn>
               </div>
             </div>
           </div>

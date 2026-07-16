@@ -23,18 +23,21 @@ mkdirSync(outDir, { recursive: true });
 
 // 中央クロップ範囲(素材に対する割合)。白い紙フチと右下の署名(✦)を枠外へ出す
 const CROP = { x: 0.12, y: 0.10, size: 0.74 };
+// pad: 描画をキャンバスに対して内側へ縮める割合(maskable用)。Android は外周をマスクで
+// 削るので、絵柄を中央 ~66% に収める安全域(セーフゾーン)を確保する。
 const SIZES = [
   { name: "apple-touch-icon.png", px: 180 },
   { name: "icon-192.png", px: 192 },
   { name: "icon-512.png", px: 512 },
+  { name: "icon-maskable-512.png", px: 512, pad: 0.18 },
 ];
 
 const dataUrl = "data:image/jpeg;base64," + readFileSync(srcPath).toString("base64");
 
 const browser = await chromium.launch({ executablePath: process.env.PW_CHROMIUM || "/opt/pw-browsers/chromium" });
 const page = await browser.newPage();
-for (const { name, px } of SIZES) {
-  const b64 = await page.evaluate(async ({ dataUrl, crop, px }) => {
+for (const { name, px, pad = 0 } of SIZES) {
+  const b64 = await page.evaluate(async ({ dataUrl, crop, px, pad }) => {
     const img = new Image();
     img.src = dataUrl;
     await img.decode();
@@ -45,13 +48,15 @@ for (const { name, px } of SIZES) {
     cv.width = px; cv.height = px;
     const ctx = cv.getContext("2d");
     ctx.imageSmoothingQuality = "high";
-    // 背景(店の色)で塗ってから絵柄を敷く(端の透過対策)
+    // 背景(店の色)で塗ってから絵柄を敷く(端の透過対策・maskableの余白にも同色)
     ctx.fillStyle = "#14110d"; ctx.fillRect(0, 0, px, px);
-    ctx.drawImage(img, sx, sy, side, side, 0, 0, px, px);
+    // maskable は pad の分だけ中央へ縮めて描く(外周がマスクで削られても絵柄が残る)
+    const inset = Math.round(px * pad), dst = px - inset * 2;
+    ctx.drawImage(img, sx, sy, side, side, inset, inset, dst, dst);
     return cv.toDataURL("image/png").split(",")[1];
-  }, { dataUrl, crop: CROP, px });
+  }, { dataUrl, crop: CROP, px, pad });
   writeFileSync(resolve(outDir, name), Buffer.from(b64, "base64"));
-  console.log("wrote", name, px + "px");
+  console.log("wrote", name, px + "px", pad ? "(maskable)" : "");
 }
 await browser.close();
 console.log("done");

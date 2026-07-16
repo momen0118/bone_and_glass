@@ -296,6 +296,76 @@ export const CAVE_UNLOCK = {
   text: "採集人「洞窟の下見をしてきた。次からは請けられる。」",
 };
 
+// ---------- 依頼票(特注) ----------
+export const ORDER_UNLOCK_REP = 15;   // 解禁評判
+export const ORDER_CHANCE = 1 / 3;    // 依頼を受けていない朝に手紙が届く確率
+export const ORDER_REWARD_MULT = 1.4; // 報酬倍率(基準価×数量×これ)
+export const ORDER_EXPIRED_LOG = "約束の品は、届かなかった。";
+// 依頼人の抽選重み(若い研究者は就職イベント後のみ)
+export const ORDER_CLIENTS = [
+  { id: "gakusei", weight: 2 },
+  { id: "gakusha", weight: 2 },
+  { id: "koujika", weight: 2 },
+  { id: "kifujin", weight: 2 },
+  { id: "wakate",  weight: 1, flag: "gakuseiGraduated" },
+];
+// 品目フィルタ(発見済みレシピの品の中から依頼人ごとに合う品へ絞る)。price=その品の基準価
+export const ORDER_FILTER = {
+  gakusei: (s, price) => price <= 160,
+  gakusha: (s) => s.cat === "bone" || s.cat === "mineral" || s.tags.includes("scholar"),
+  koujika: (s) => s.tags.includes("rare"),
+  kifujin: (s) => s.tags.includes("fancy"),
+  wakate:  (s) => s.cat === "bone" || s.tags.includes("scholar"),
+};
+// 品目の原材料が来る採集地の解禁フラグ。未解禁なら依頼プールから除外(作れない約束は届かない)。
+// mori・umibe 由来の品(記載なし)は常時可。
+export const ORDER_SITE_GATE = {
+  s_koumori: "caveUnlocked", s_hebibin: "caveUnlocked", s_hebikotsu: "caveUnlocked",
+  s_suisho: "caveUnlocked", s_ammo: "caveUnlocked",
+  s_kaerubin: "swampUnlocked", s_kaerukotsu: "swampUnlocked", s_tokagebin: "swampUnlocked",
+  s_ga: "swampUnlocked", s_gagaku: "swampUnlocked", s_fukuroukotsu: "swampUnlocked",
+  s_fukurouzen: "swampUnlocked", s_hikariterra: "swampUnlocked",
+};
+// レア素材由来の品は「長期・大口依頼」。納期を加算し報酬倍率を上書きする(明細には特別な注記をしない)
+export const ORDER_RARE = {
+  s_kuragebin:   { term: 4, mult: 1.6 }, // 海月(重み1)
+  s_fukuroukotsu:{ term: 4, mult: 1.6 }, // 梟(重み1)
+  s_fukurouzen:  { term: 4, mult: 1.6 },
+  s_hikariterra: { term: 2, mult: 1.5 }, // 夜光苔(重み2)
+  s_tokagebin:   { term: 2, mult: 1.5 }, // 蜥蜴(重み2)
+};
+// 手紙文面(全文。{item}のみ差し込み。数量・納期は本文に書かず明細に任せる)
+export const ORDER_LETTERS = {
+  gakusei: [
+    "ぶしつけにお手紙差し上げます。講義の資料に、{item}が要り用になりました。学生の身で不躾なお願いですが、お店の品はどれも確かなので……。精一杯払います。",
+    "先日はありがとうございました。今度、研究会で発表することになり、{item}をお願いできないかと思い立ちました。友人にも、あの店の仕事は違うと自慢しています。",
+    "試験が終わったら、自分へのご褒美と決めていました。{item}を、取り置きしていただけますか。下宿の机が、少しずつ博物室になっていくのが嬉しいのです。",
+    "無理を承知で書いています。ゼミの教授が{item}を探しておいでで、僕が「良い店を知っています」と言ってしまいました。どうか、僕に恥をかかせないでください。",
+  ],
+  gakusha: [
+    "標本商殿。研究に{item}を要する。急がぬが、雑な仕事は要らぬ。君の煮沸は信用している。",
+    "{item}の良品が要る。学会で使う。骨の並びひとつで、老人の面目は立ちもすれば潰れもする。頼んだ。",
+    "弟子に標本の読み方を教える。教材には{item}がよかろう。若い眼は誤魔化しがきかん。君の仕事なら耐えるはずだ。",
+    "標本商殿。{item}を頼む。研究室の棚にひとつ空きがある。長年迷っていたが、埋めるなら君の店の品と決めた。",
+  ],
+  koujika: [
+    "親愛なる標本商君。私の蒐集室に、どうしても{item}が欠けていることに、昨夜気づいてしまった。こうなるともう眠れんのだ。頼まれてくれるかね。",
+    "友人の蒐集家が先日、自慢げに珍品を見せびらかしてきた。悔しいので{item}で応戦したい。君の店の品なら、あの男も黙るだろう。",
+    "良い品は、良い店にしか頼まぬ主義でね。{item}を見繕ってくれたまえ。値は問わん——と言いたいが、女房が帳簿を見るのでほどほどに。",
+    "旅に出る前に、ひとつ頼みたい。{item}だ。帰ってきたとき、それが待っていると思えば、旅路も楽しかろう。",
+  ],
+  kifujin: [
+    "ごきげんよう。先日お伺いした折の、硝子棚の美しさが忘れられませんの。来週、客間で小さなお茶会を開きますの。{item}を飾りとうございます。皆さまが息を呑む顔が、今から目に浮かびますわ。",
+    "不躾なお手紙、お許しになって。姪の誕生日が近いのです。あの子、少し変わっていて、お花より{item}のほうが喜びますのよ。血筋かしら。",
+    "主人がね、わたくしの買い物に小言を申しますの。ですから今回は「お友達への贈り物」ということに。{item}をお願いできて? ええ、贈り先はわたくしですわ。",
+    "夜会で、あなたのお店の話をいたしましたら、皆さま興味津々で。{item}を居間に飾って、次の集まりで種明かしをするつもりですの。それまでどうか、ご内密に。",
+  ],
+  wakate: [
+    "ご無沙汰しています。研究室で{item}が必要になりました。教授が「良い店を知っているそうだな」と……はい、僕の自慢の店です。",
+    "初任給で買ったあの日の品、今も机にあります。今度は仕事でお願いします。{item}を。研究費で払えますから、遠慮はしません。",
+  ],
+};
+
 // ---------- 大家 ----------
 export const OOYA = {
   id: "ooya", name: "大家", icon: "🗝️",

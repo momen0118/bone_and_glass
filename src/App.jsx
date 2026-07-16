@@ -1645,8 +1645,9 @@ export default function BoneAndGlass() {
                               <>
                                 <SpecIcon id={id} fileImgs={fileImgs} size={48} emojiSize={40} />
                                 <div style={{ fontSize: 11, textAlign: "center", lineHeight: 1.25, color: isWorm(id) ? C.dim : C.ivory }}>{specOf(id).name}</div>
-                                {/* 値札: 品物の足元、板の上に置かれた小札(スクエア) */}
-                                <div style={{ fontSize: 12, color: inSet ? C.brass : bonus ? C.glass : C.brass, background: "rgba(20,17,13,0.6)", padding: "2px 7px", fontVariantNumeric: "tabular-nums" }}>
+                                {/* 値札: 品物の足元、板の上に置かれた小札(スクエア)。
+                                    高さを固定し、✦/↑ のグリフ高さに依存せず接地線を保つ */}
+                                <div style={{ fontSize: 12, lineHeight: 1, height: 20, boxSizing: "border-box", display: "inline-flex", alignItems: "center", justifyContent: "center", color: inSet ? C.brass : bonus ? C.glass : C.brass, background: "rgba(20,17,13,0.6)", padding: "0 7px", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
                                   {shelfPrice(g, i, curSets)}G{inSet ? " ✦" : bonus ? " ↑" : ""}
                                 </div>
                               </>

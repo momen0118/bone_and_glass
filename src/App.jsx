@@ -1333,7 +1333,8 @@ export default function BoneAndGlass() {
                 <span>{ORDER_EXPIRED_LOG}</span>
               </div>
             )}
-            <Panel style={{ background: "transparent" }}>
+            {/* 倉庫: 角丸なし(スクエア)・枠線なし。Ivoryを薄く敷いて帳面の頁の淡い紙色に */}
+            <div style={{ background: "rgba(232,220,196,0.035)", padding: 12 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
                 <div style={{ fontSize: 11, color: C.dim }}>倉庫</div>
                 {wormCount > 0 && g.mushiFirstDone && (
@@ -1346,7 +1347,7 @@ export default function BoneAndGlass() {
               <div style={{ fontSize: 13, lineHeight: 1.9 }}>
                 {invEntries.length ? invEntries.map(([k, v]) => <span key={k} style={{ marginRight: 10, whiteSpace: "nowrap" }}><MatIcon id={k} fileImgs={fileImgs} emojiSize={13} />{itemName(k)}×{v}</span>) : <span style={{ color: C.dim }}>空っぽだ</span>}
               </div>
-            </Panel>
+            </div>
             {/* 特注: 未受領の手紙(倉庫の下) */}
             {g.letter && (() => {
               const cust = CUSTOMERS.find((c) => c.id === g.letter.client);

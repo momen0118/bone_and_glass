@@ -18,7 +18,7 @@ import {
   ORDER_UNLOCK_REP, ORDER_CHANCE, ORDER_REWARD_MULT, ORDER_EXPIRED_LOG, ORDER_DECLINE,
   ORDER_CLIENTS, ORDER_FILTER, ORDER_LETTERS, ORDER_SITE_GATE, ORDER_RARE,
   BUYOUT_CELEBRATE, SCENES, OOYA_ORDER,
-  APPRENTICE_INTRO, MONTH_REMARKS,
+  APPRENTICE_INTRO, MONTH_REMARKS, RUMORS, RUMOR_CHANCE,
   RENT, RENT_INTERVAL, MAX_AP,
 } from "./data.js";
 import { storage } from "./storage.js";
@@ -281,6 +281,7 @@ function simulateNight(g) {
   let graduated = g.gakuseiGraduated;
   let graduatedTonight = false; // 就職イベントが起きた夜は学生を再抽選しない
   const celebrated = { ...g.celebrated }; // 買い取りの祝いセリフ(客層ごと1回)
+  let rumorGiven = false; // 銘板の噂は一晩最大1回
 
   const priceAt = (i) => {
     let p = basePrice(g, shelf[i]) * mode.mult;
@@ -330,6 +331,16 @@ function simulateNight(g) {
       const line = opts.celebrateLine || (big ? custLine(c, bought, "big") : custLine(c, bought, "buy"));
       log.push({ t: "sale", cid: c.id, big, text: `${c.name}「${line}」— ${sp.icon} ${sp.name}を ${price}G で購入。`, line, itemId: target.id, price, ...(opts.tag || {}) });
       return { bought: true };
+    }
+    // 銘板の噂: passした客が、担当銘板のうち未発見のものがあれば 8% で噂を落とす(一晩1回)
+    if (!rumorGiven) {
+      const undiscovered = (RUMORS[c.id] || []).filter((r) => !g.knownSets.includes(r.set));
+      if (undiscovered.length && Math.random() < RUMOR_CHANCE) {
+        rumorGiven = true;
+        const r = pick(undiscovered);
+        log.push({ t: "misc", cid: c.id, text: `${c.name}「${r.line}」`, line: r.line, ...(opts.tag || {}) });
+        return { bought: false };
+      }
     }
     const line = custLine(c, bought, "pass");
     log.push({ t: "misc", cid: c.id, text: `${c.name}「${line}」`, line, ...(opts.tag || {}) });

@@ -1848,7 +1848,7 @@ export default function BoneAndGlass() {
       {showLetter && g.letter && (() => {
         const l = g.letter;
         const body = ORDER_LETTERS[l.client][l.li].replace("{item}", SPECIMENS[l.specId].name);
-        const ink = C.panelHi, paper = C.ivory, rule = "rgba(42,35,24,0.25)";
+        const ink = C.panelHi, paper = C.ivory, rule = "rgba(42,35,24,0.25)", seal = "#8f4a3c"; // seal=封蝋色
         return (
           <div onClick={() => setShowLetter(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, zIndex: 66 }}>
             <div onClick={(e) => e.stopPropagation()} style={{ background: paper, color: ink, maxWidth: 380, width: "100%", maxHeight: "84vh", overflowY: "auto", padding: "24px 20px", boxShadow: "0 8px 30px rgba(0,0,0,0.6)", fontFamily: "Georgia, 'Yu Mincho', serif" }}>
@@ -1860,12 +1860,12 @@ export default function BoneAndGlass() {
               <div style={{ fontSize: 12.5, lineHeight: 2.0, color: "rgba(42,35,24,0.85)", letterSpacing: "0.02em" }}>
                 {SPECIMENS[l.specId].name} × {l.qty} / 納期 {l.term}日 / 報酬 {l.reward}G
               </div>
-              {/* 4. ボタン */}
-              <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+              {/* 4. ボタン(受けるは封蝋色で強調)。行と紙面下端の間に余白 */}
+              <div style={{ display: "flex", gap: 10, marginTop: 20, marginBottom: 14 }}>
                 <button onClick={() => { declineOrder(); setShowLetter(false); }}
                   style={{ fontFamily: "inherit", cursor: "pointer", flex: 1, background: "transparent", color: ink, border: `1px solid ${rule}`, borderRadius: 4, padding: "9px 0", fontSize: 14 }}>断る</button>
                 <button onClick={() => { acceptOrder(); setShowLetter(false); }}
-                  style={{ fontFamily: "inherit", cursor: "pointer", flex: 1, background: ink, color: paper, border: "none", borderRadius: 4, padding: "9px 0", fontSize: 14 }}>受ける</button>
+                  style={{ fontFamily: "inherit", cursor: "pointer", flex: 1, background: seal, color: paper, border: "none", borderRadius: 4, padding: "9px 0", fontSize: 14 }}>受ける</button>
               </div>
             </div>
           </div>

@@ -1090,6 +1090,7 @@ export default function BoneAndGlass() {
   const [ooyaCardOpen, setOoyaCardOpen] = useState(false);
   // OP(はじまりの朝)の表示ステップ(null=非表示 / 0〜=表示中。新規開始時のみ)
   const [opStep, setOpStep] = useState(null);
+  const [opClosing, setOpClosing] = useState(false); // OP最終枚→朝への統一フェード(フェードアウト中)
   // タイトルに戻る確認(下部バー・全フェーズ)。店の記録は残す
   const [toTitleConfirm, setToTitleConfirm] = useState(false);
   // タイトルの「最初から」確認(既存セーブがある場合のみ)。記録を消してOPへ
@@ -1100,7 +1101,7 @@ export default function BoneAndGlass() {
     if (!document.getElementById("bg-fade-kf")) {
       const st = document.createElement("style");
       st.id = "bg-fade-kf";
-      st.textContent = "@keyframes bgFadeIn{from{opacity:0}to{opacity:1}}";
+      st.textContent = "@keyframes bgFadeIn{from{opacity:0}to{opacity:1}}@keyframes bgFadeOut{from{opacity:1}to{opacity:0}}";
       document.head.appendChild(st);
     }
     (async () => {
@@ -1170,12 +1171,14 @@ export default function BoneAndGlass() {
     let gatherCount = g.gatherCount || 0, caveUnlocked = g.caveUnlocked;
     if (site.id === "mori" || site.id === "umibe") gatherCount += 1;
     const justUnlocked = !caveUnlocked && gatherCount >= CAVE_UNLOCK.threshold;
+    // 解禁は朝画面冒頭のイベント行(採集人の報告)で見せる。トーストは出さない(二重表示を避ける)
     if (justUnlocked) { caveUnlocked = true; setCaveEvent(CAVE_UNLOCK.text); }
     // 採集人の満月報告: 2回目の満月(相4)の一晩目の朝(奇数日=満月の対のうち先の日)に採集依頼を出したら一度きり
     const fireMoonReport = !g.moonReportDone && moonPhase(g.day) === 4 && g.day % 2 === 1 && Math.floor((g.day - 1) / 14) === 1;
     setG({ ...g, gold: g.gold - site.cost, inv, siteCount, gatherCount, caveUnlocked,
       moonReport: g.moonReport || fireMoonReport, moonReportDone: g.moonReportDone || fireMoonReport });
-    flash(justUnlocked ? CAVE_UNLOCK.text : "入手: " + Object.entries(got).map(([k, v]) => `${itemIcon(k)}${itemName(k)} ${v}`).join("、"));
+    // トーストは常に入手内容のみ(解禁時も入手は発生している。解禁はイベント行が担う)
+    flash("入手: " + Object.entries(got).map(([k, v]) => `${itemIcon(k)}${itemName(k)} ${v}`).join("、"));
   };
   const buySupply = (s, qty = 1) => {
     const total = s.cost * qty;
@@ -2759,9 +2762,12 @@ export default function BoneAndGlass() {
       {opStep !== null && OP[opStep] && (() => {
         const sc = OP[opStep];
         const imgUrl = sc.img && fileImgs && fileImgs.op && fileImgs.op[sc.img];
-        const advance = () => setOpStep(opStep + 1 < OP.length ? opStep + 1 : null);
+        // 最終枚のタップは即座に閉じず、全面をフェードアウトして1日目の朝へ溶かす(統一フェード)
+        const advance = () => { if (opClosing) return; if (opStep + 1 < OP.length) setOpStep(opStep + 1); else setOpClosing(true); };
         return (
-          <div onClick={advance} style={{ position: "fixed", inset: 0, background: "#0a0806", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 28, zIndex: 80, cursor: "pointer", fontFamily: "Georgia, 'Yu Mincho', serif" }}>
+          <div onClick={advance}
+            onAnimationEnd={(e) => { if (opClosing && e.animationName === "bgFadeOut") { setOpStep(null); setOpClosing(false); } }}
+            style={{ position: "fixed", inset: 0, background: "#0a0806", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 28, zIndex: 80, cursor: "pointer", fontFamily: "Georgia, 'Yu Mincho', serif", animation: opClosing ? "bgFadeOut 0.75s ease forwards" : undefined }}>
             <div key={opStep} style={{ width: "100%", maxWidth: 400, animation: FADE }}>
               {imgUrl ? (
                 // 画像+地の文(月の独白と同じ様式: カード内背景+下部に地の文)

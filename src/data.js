@@ -612,7 +612,7 @@ export const RUMORS = {
   ],
   gakusei: [
     { set: "set_aqua",  line: "先輩が言ってました。水のものばかり硝子に並べた棚は、店ごと沈んで見えるって" },
-    { set: "set_bones", line: "骨、骨、骨。並べ切った店主がいたらしいっすよ。豪気だなあ" },
+    { set: "set_bones", line: "骨、骨、骨。並べ切った店主がいたらしいです。豪気だなあ" },
   ],
 };
 export const RUMOR_CHANCE = 0.08; // passした客が噂を落とす確率

@@ -584,6 +584,7 @@ export const RUMOR_CHANCE = 0.08; // passした客が噂を落とす確率
 // (若い研究者・蟲屋・大家・蒐集家は噂を言わない)。うわさはログ・図鑑に記録しない。
 export const GOSSIP_CHANCE = 0.03;
 export const GOSSIP_SPEAKERS = ["kifujin", "gakusei", "koujika", "gakusha"];
+export const GOSSIP_CUST_MIN = 15; // #6の下限: 客層別販売の合計がこの件数に満たない間は成立しない
 export const GOSSIP = {
   g1:  { cid: "kifujin", line: "あの店、儲かってるはずなのに、店構えは変わらないのね" },
   g2:  { cid: "gakusei", line: "あの……この店、たまに羽音がするって、先輩が" },

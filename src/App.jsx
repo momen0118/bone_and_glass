@@ -274,10 +274,10 @@ const siteUnlocked = (g, s) =>
   s.id === "shitsugen" ? g.swampUnlocked
   : s.id === "doukutsu" ? g.caveUnlocked
   : s.id === "haikou" ? g.haikouUnlocked : true;
-// 大発生の抽選(クリア後・毎朝)。解禁済み採集地からランダム一箇所、その地のテーブルからランダム一種
+// 大発生の抽選(万象堂の朝以降・毎朝)。解禁済み採集地からランダム一箇所、その地のテーブルからランダム一種
 // (exportは検証スクリプト用。ゲーム内の挙動は不変)
 export function rollOutbreak(g) {
-  if (!g.endingDone || Math.random() >= OUTBREAK_CHANCE) return null;
+  if (!g.banshoAlias || Math.random() >= OUTBREAK_CHANCE) return null;
   const sites = SITES.filter((s) => siteUnlocked(g, s));
   if (!sites.length) return null;
   const site = pick(sites);
@@ -322,8 +322,8 @@ export function rollOrderLetter(g) {
   // 発見済みレシピの品(=作れると分かっている標本)
   const knownSpecs = [...new Set(RECIPES.filter((r) => g.known.includes(r.id)).map((r) => r.to))];
   const filt = ORDER_FILTER[client];
-  // v8.3: クリア後は 1/3 で大口依頼。数量2〜5・対象に高額品(全身骨格級・晶洞)を追加・納期+2日。
-  const big = g.endingDone && Math.random() < ORDER_BIG_CHANCE;
+  // v8.3: 万象堂の朝以降は 1/3 で大口依頼。数量2〜5・対象に高額品(全身骨格級・晶洞)を追加・納期+2日。
+  const big = g.banshoAlias && Math.random() < ORDER_BIG_CHANCE;
   // 発見済み × 採集地が解禁済み(未解禁の原材料の品は除外)。
   // 通常は依頼人フィルタで絞る。大口はそれに加えて高額品も候補入りする(依頼人フィルタ不問)。
   const pool = knownSpecs.filter((id) => SPECIMENS[id]
@@ -454,9 +454,10 @@ export function simulateNight(g) {
     + (phase === 4 ? 2 : 0) + (phase === 0 ? -2 : 0);
   visitors = Math.min(g.shelfSize + 2, Math.max(phase === 0 ? 1 : 0, visitors));
   const aliasCat = g.alias;
-  // 細工師の出現: クリア後、棚に鉱物が SAIKUSHI_MINERALS 点以上あれば来客抽選に weight 1 で混ざる
+  // 細工師の出現: 万象堂の朝以降(万象堂の噂を聞いて来る人)、棚に鉱物が SAIKUSHI_MINERALS 点以上あれば
+  // 来客抽選に weight 1 で混ざる。花籠を飾った当日の夜(banshoAlias未獲得)はまだ来ない。
   const mineralCount = shelf.slice(0, g.shelfSize).filter((id) => id && !isWorm(id) && SPECIMENS[id].cat === "mineral").length;
-  const saikushiEligible = g.endingDone && mineralCount >= SAIKUSHI_MINERALS;
+  const saikushiEligible = g.banshoAlias && mineralCount >= SAIKUSHI_MINERALS;
   // 銘板の招き: 単数 invite / 複数 invites の両対応
   const setInvites = (c) => sets.some((s) => (s.invites ? s.invites.includes(c.id) : s.invite === c.id));
   const pool = CUSTOMERS.filter((c) => g.rep >= c.minRep && (!c.flag || g[c.flag])).map((c) => {
@@ -1410,12 +1411,12 @@ export default function BoneAndGlass() {
     let edFireDay = src.edFireDay;
     if (edFireDay == null && !src.endingDone && specComp(src.known)) edFireDay = day + 1;
     // v8.3: 見習いの雇用日数を数える(直前の一日=src.dayで雇っていたか)。
-    // 通算20日 かつ クリア後10日 の両方を満たした翌朝に一度だけ昇格する。
+    // 通算20日 かつ 万象堂の朝以降10日 の両方を満たした翌朝に一度だけ昇格する。
     let apprenticeDaysTotal = src.apprenticeDaysTotal || 0;
     let apprenticeDaysPostClear = src.apprenticeDaysPostClear || 0;
     if (src.apprentice) {
       apprenticeDaysTotal += 1;
-      if (src.endingDone) apprenticeDaysPostClear += 1;
+      if (src.banshoAlias) apprenticeDaysPostClear += 1;
     }
     let apprenticeArtisan = src.apprenticeArtisan, apprenticePromoteMorning = false;
     if (!apprenticeArtisan && apprenticeDaysTotal >= APPRENTICE_DAYS_TOTAL && apprenticeDaysPostClear >= APPRENTICE_DAYS_POSTCLEAR) {
@@ -1452,6 +1453,9 @@ export default function BoneAndGlass() {
     // 大家の依頼: 4品すべて倉庫に揃った朝は自動で開く。揃っていなければ畳む。
     setOoyaCardOpen(ooyaOrderReady(ng));
     setG(ng); save(ng);
+    // 日付が変わる遷移(夜→翌朝)ではスクロールを必ず先頭へ戻す(朝の冒頭イベント行を見逃さない)。
+    // 陳列のフェーズ内の位置保持(placeOnShelf)とは別物。
+    requestAnimationFrame(() => window.scrollTo(0, 0));
   };
   const nextDay = () => {
     // 万象の夜(エンディング): 条件を満たした夜の閉店後に単独で発生(通常の蒐集家・大家来訪より優先)
@@ -2516,6 +2520,16 @@ export default function BoneAndGlass() {
                 </div>
                 {/* 月ごとの頁(歴代の月次記録・新しい順)。旧セーブは末尾(記録の始まりより前)に喪失の一行 */}
                 <div style={{ display: "flex", flexDirection: "column" }}>
+                  {/* 先頭に進行中の月「今日までの記録」を常設(月が締まると◯ヶ月目の記録に確定する) */}
+                  <div style={{ borderTop: `1px solid ${C.line}`, padding: "8px 2px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 13 }}>
+                      <span style={{ color: C.brass }}>今日までの記録</span>
+                      <span style={{ fontVariantNumeric: "tabular-nums" }}>売上 {g.monthEarn || 0}G</span>
+                    </div>
+                    <div style={{ fontSize: 12, color: C.dim, marginTop: 2 }}>
+                      販売 {g.monthSold || 0}点 · 評判 {g.rep} · {g.alias ? `『${ALIASES[g.alias].name}』` : "──"}
+                    </div>
+                  </div>
                   {months.map((r) => (
                     <div key={r.m} style={{ borderTop: `1px solid ${C.line}`, padding: "8px 2px" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 13 }}>

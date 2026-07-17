@@ -12,7 +12,7 @@ import {
   PROCESSES, procLevel, RECIPES, SPEC_PROC, SECONDARY,
   SITES, SUPPLY_SHOP, SHELF_EXPAND, DECOR,
   CUSTOMERS, COLLECTOR, OOYA, SHOP_BUYOUT, SETS, ALIASES, PRICE_MODES,
-  GAKUSEI_KOUHAI_LINE, GAKUSEI_GRAD, SWAMP_UNLOCK, CAVE_UNLOCK, SPEC_LORE,
+  GAKUSEI_KOUHAI_LINE, GAKUSEI_GRAD, SWAMP_UNLOCK, CAVE_UNLOCK, LEDGER_LOST, LEDGER_TITLES,
   WORM, isWorm, wormId, baseId, WORM_CATS, specOf, CAMPHOR, mushiDiscover, MUSHIYA,
   moonPhase, MOON_OPEN, MOON_BOOST, MOON_REPORT, KANI_RESCUE, ANA_ALIAS,
   ORDER_UNLOCK_REP, ORDER_CHANCE, ORDER_REWARD_MULT, ORDER_EXPIRED_LOG, ORDER_DECLINE,
@@ -873,9 +873,7 @@ export default function BoneAndGlass() {
   const [fileImgs, setFileImgs] = useState(null);
   const [sel, setSel] = useState(null);
   const [shelfPickFor, setShelfPickFor] = useState(null);
-  const [showBook, setShowBook] = useState(false);
-  const [bookTab, setBookTab] = useState("spec");
-  const [bookDetail, setBookDetail] = useState(null); // 図鑑の詳細ビュー(発見済み標本ID)
+  const [showLedger, setShowLedger] = useState(false); // 帳簿(店史)モーダル
   const [showGallery, setShowGallery] = useState(false);
   const [showDecor, setShowDecor] = useState(false);
   const [toast, setToast] = useState(null);
@@ -2074,134 +2072,70 @@ export default function BoneAndGlass() {
           </div>
         )}
 
-        {/* ===== 図鑑(タブ付き) ===== */}
-        {showBook && (
-          <div onClick={() => setShowBook(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, zIndex: 50 }}>
-            <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.brass}`, borderRadius: 4, padding: 16, maxWidth: 480, width: "100%", maxHeight: "82vh", overflowY: "auto" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10, alignItems: "center" }}>
-                <div style={{ display: "flex", gap: 6 }}>
-                  {[["spec", "標本"], ["plate", "銘板"], ["alias", "通り名"]].map(([k, n]) => (
-                    <button key={k} onClick={() => setBookTab(k)}
-                      style={{ fontFamily: "inherit", cursor: "pointer", fontSize: 12, padding: "4px 10px", borderRadius: 4, letterSpacing: "0.15em", background: bookTab === k ? C.brass : "transparent", color: bookTab === k ? "#1a140c" : C.dim, border: `1px solid ${bookTab === k ? C.brass : C.line}` }}>{n}</button>
-                  ))}
-                </div>
-                <button onClick={() => setShowBook(false)} style={{ background: "none", border: "none", color: C.dim, cursor: "pointer", fontFamily: "inherit" }}>閉じる</button>
-              </div>
-
-              {bookTab === "spec" && (
-                <>
-                  <div style={{ fontSize: 11, color: C.dim, marginBottom: 8, lineHeight: 1.7 }}>
-                    分類(骨格・昆虫・液浸・鉱物・工芸)は棚の並びと銘板に効く。珍・華・学の印は客の好みに効く。
-                  </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-                    {Object.entries(SPECIMENS).map(([id, s]) => {
-                      const found = knownSpecs.has(id);
-                      // 花籠は発見するまで枠ごと伏せる(標本タブの最後・非売)
-                      if (id === HANAKAGO && !found) return null;
-                      const recipe = found ? RECIPES.find((r) => r.to === id) : null;
-                      return (
-                        <div key={id} onClick={() => found && setBookDetail(id)}
-                          style={{ border: `1px solid ${C.line}`, borderRadius: 5, padding: 8, opacity: found ? 1 : 0.45, cursor: found ? "pointer" : "default" }}>
-                          <div style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 5 }}>
-                            {found ? <SpecIcon id={id} fileImgs={fileImgs} size={28} emojiSize={13} /> : "▪"} <span>{found ? s.name : "?????"}</span>
-                          </div>
-                          <div style={{ fontSize: 10, color: C.dim, marginTop: 2 }}>
-                            {found ? <>{CAT_NAME[s.cat]} · {s.nosale ? "非売" : `${s.price}G`}{s.tags.map((t) => <TagChip key={t} t={t} />)}</> : "未発見"}
-                          </div>
-                          {recipe && (
-                            <div style={{ fontSize: 10, color: C.dim, marginTop: 2 }}>
-                              仕立て: {PROCESSES[recipe.proc].name}{(recipe.minLv || 1) >= 2 ? ` Lv${recipe.minLv}` : ""}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </>
-              )}
-
-              {bookTab === "plate" && (
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  <div style={{ fontSize: 11, color: C.dim, marginBottom: 2 }}>良い陳列には銘板が掲がる。対象の売価+20%、決まった客を呼び寄せる。</div>
-                  {SETS.map((s) => {
-                    const found = g.knownSets.includes(s.id);
-                    return (
-                      <div key={s.id} style={{ border: `1px solid ${found ? C.brass : C.line}`, borderRadius: 5, padding: 8, opacity: found ? 1 : 0.5 }}>
-                        <div style={{ fontSize: 13, color: found ? C.brass : C.ivory }}>✦ {found ? s.name : "?????"}</div>
-                        <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>{found ? s.desc : "未発見の陳列"}</div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {bookTab === "alias" && (
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  <div style={{ fontSize: 11, color: C.dim, marginBottom: 2 }}>売れ筋の分類で、街での呼ばれ方が変わる。名は客層の足を引く。</div>
-                  {Object.entries(ALIASES).map(([cat, a]) => {
-                    const found = g.aliasHistory.includes(cat);
-                    const now = aliasCat === cat;
-                    return (
-                      <div key={cat} style={{ border: `1px solid ${now ? C.brass : C.line}`, borderRadius: 5, padding: 8, opacity: found ? 1 : 0.5 }}>
-                        <div style={{ fontSize: 13 }}>{found ? `『${a.name}』` : "『???』"}{now && <span style={{ fontSize: 10, color: C.brass, marginLeft: 6 }}>いまの通り名</span>}</div>
-                        <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>{found ? `${CAT_NAME[cat]}の店として知られた証` : `${CAT_NAME[cat]}を売り込めば…`}</div>
-                      </div>
-                    );
-                  })}
-                  {/* 隠し枠「穴物堂」: 獲得後のみ表示(未獲得時は一切出さない) */}
-                  {g.anaAlias && (
-                    <div style={{ border: `1px solid ${C.brass}`, borderRadius: 5, padding: 8 }}>
-                      <div style={{ fontSize: 13, color: C.brass }}>『{ANA_ALIAS.name}』</div>
-                      <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>{ANA_ALIAS.desc}</div>
-                    </div>
-                  )}
-                  {/* 「万象堂」: 花籠完成後のみ表示(独立枠) */}
-                  {g.banshoAlias && (
-                    <div style={{ border: `1px solid ${C.brass}`, borderRadius: 5, padding: 8 }}>
-                      <div style={{ fontSize: 13, color: C.brass }}>『{BANSHO.name}』</div>
-                      <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>{BANSHO.desc}</div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* ===== 図鑑の詳細ビュー(発見済み標本のみ) ===== */}
-        {showBook && bookDetail && (() => {
-          const s = SPECIMENS[bookDetail];
-          const recipe = RECIPES.find((r) => r.to === bookDetail);
-          const url = fileImgs && fileImgs.specimens && fileImgs.specimens[bookDetail];
+        {/* ===== 帳簿(店史) ===== */}
+        {showLedger && (() => {
+          const maxEntry = (obj) => {
+            let bk = null, bn = 0;
+            for (const [k, v] of Object.entries(obj || {})) if (v > bn) { bk = k; bn = v; }
+            return [bk, bn];
+          };
+          const [topItem] = maxEntry(g.soldByItem);
+          const [topCat] = maxEntry(g.soldByCat);
+          // 客層別: 若い研究者は学生に合算。最多が同数で並んでいる間は「最多」が立たない
+          const custTally = {};
+          Object.entries(g.soldByCust || {}).forEach(([k, v]) => {
+            const key = k === "wakate" ? "gakusei" : k;
+            custTally[key] = (custTally[key] || 0) + v;
+          });
+          const [topCust, topCustN] = maxEntry(custTally);
+          const custTie = Object.values(custTally).filter((v) => v === topCustN).length > 1;
+          const custName = (id) => (CUSTOMERS.find((c) => c.id === id) || {}).name || "";
+          const months = [...(g.monthly || [])].reverse(); // 新しい順
+          const tally = [
+            ["一番売った品", topItem ? SPECIMENS[topItem].name : "──"],
+            ["一番売った分類", topCat ? CAT_NAME[topCat] : "──"],
+            ["一番売れた客層", topCust && !custTie ? custName(topCust) : "──"],
+            ["最高月商", `${g.bestMonthEarn || 0}G`],
+            ["通り名の変遷", g.aliasHistory.length ? g.aliasHistory.map((c) => ALIASES[c].name).join(" → ") : "──"],
+          ];
+          const title = topCust && !custTie ? LEDGER_TITLES[topCust] : null;
           return (
-            <div onClick={() => setBookDetail(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, zIndex: 55 }}>
-              <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.brass}`, borderRadius: 4, padding: 16, maxWidth: 380, width: "100%", maxHeight: "82vh", overflowY: "auto" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                  <div style={{ fontSize: 15, letterSpacing: "0.1em" }}>{s.name}</div>
-                  <button onClick={() => setBookDetail(null)} style={{ background: "none", border: "none", color: C.dim, cursor: "pointer", fontFamily: "inherit" }}>閉じる</button>
+            <div onClick={() => setShowLedger(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, zIndex: 50 }}>
+              <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.brass}`, borderRadius: 4, padding: 16, maxWidth: 480, width: "100%", maxHeight: "82vh", overflowY: "auto" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
+                  <div style={{ letterSpacing: "0.25em", color: C.brass, fontSize: 13 }}>帳簿</div>
+                  <button onClick={() => setShowLedger(false)} style={{ background: "none", border: "none", color: C.dim, cursor: "pointer", fontFamily: "inherit" }}>閉じる</button>
                 </div>
-                <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}>
-                  {url ? (
-                    <span style={{ width: "76%", aspectRatio: "1 / 1", borderRadius: 8, overflow: "hidden", display: "block", border: `1px solid ${C.line}` }}>
-                      <img src={url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", transform: `scale(${specTrim(bookDetail)})` }} />
-                    </span>
-                  ) : (
-                    <div style={{ width: "76%", aspectRatio: "1 / 1", borderRadius: 8, border: `1px solid ${C.line}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 72, background: "#171310" }}>{s.icon}</div>
+                {/* 月ごとの頁(歴代の月次記録・新しい順)。旧セーブは末尾(記録の始まりより前)に喪失の一行 */}
+                <div style={{ display: "flex", flexDirection: "column" }}>
+                  {months.map((r) => (
+                    <div key={r.m} style={{ borderTop: `1px solid ${C.line}`, padding: "8px 2px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 13 }}>
+                        <span style={{ color: C.brass }}>{r.m}ヶ月目</span>
+                        <span style={{ fontVariantNumeric: "tabular-nums" }}>売上 {r.earn}G</span>
+                      </div>
+                      <div style={{ fontSize: 12, color: C.dim, marginTop: 2 }}>
+                        販売 {r.sold}点 · 評判 {r.rep} · {r.alias ? `『${ALIASES[r.alias].name}』` : "──"}
+                      </div>
+                    </div>
+                  ))}
+                  {g.historyLost && (
+                    <div style={{ borderTop: `1px solid ${C.line}`, padding: "8px 2px", fontSize: 12, color: C.dim, lineHeight: 1.8 }}>{LEDGER_LOST}</div>
                   )}
                 </div>
-                <div style={{ fontSize: 12, color: C.dim, textAlign: "center" }}>
-                  {CAT_NAME[s.cat]} · {s.nosale ? "非売" : `${s.price}G`}{s.tags.map((t) => <TagChip key={t} t={t} />)}
+                {/* 集計欄 */}
+                <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 4, paddingTop: 10 }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {tally.map(([k, v]) => (
+                      <div key={k} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12, fontSize: 13 }}>
+                        <span style={{ color: C.dim, fontSize: 12, whiteSpace: "nowrap" }}>{k}</span>
+                        <span style={{ textAlign: "right" }}>{v}</span>
+                      </div>
+                    ))}
+                  </div>
+                  {/* 客層称号(通算の最多客層に応じて一行) */}
+                  {title && <div style={{ marginTop: 12, fontSize: 12, color: C.dim, lineHeight: 1.8 }}>{title}</div>}
                 </div>
-                {recipe && (
-                  <div style={{ fontSize: 12, color: C.dim, textAlign: "center", marginTop: 4 }}>
-                    仕立て: {PROCESSES[recipe.proc].name}{(recipe.minLv || 1) >= 2 ? ` Lv${recipe.minLv}` : ""}
-                  </div>
-                )}
-                {SPEC_LORE[bookDetail] && (
-                  <div style={{ fontSize: 13, color: C.ivory, lineHeight: 2, marginTop: 12, borderTop: `1px solid ${C.line}`, paddingTop: 10 }}>
-                    {SPEC_LORE[bookDetail]}
-                  </div>
-                )}
               </div>
             </div>
           );
@@ -2333,7 +2267,8 @@ export default function BoneAndGlass() {
       {/* 下部バー */}
       <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, background: "rgba(20,17,13,0.96)", borderTop: `1px solid ${C.line}`, paddingTop: 10, paddingLeft: 10, paddingRight: 10, paddingBottom: "calc(10px + env(safe-area-inset-bottom, 0px))" }}>
         <div style={{ maxWidth: 560, margin: "0 auto", display: "flex", gap: 6, alignItems: "center" }}>
-          <Btn onClick={() => { setBookTab("spec"); setBookDetail(null); setShowBook(true); }} style={FOOT_BTN}>図鑑</Btn>
+          {/* 帳簿: 図鑑ボタンと交代(図鑑は廃止)。開店31日目以降、またはクリア後のいずれか早い方で出現 */}
+          {(g.day >= 31 || g.endingDone) && <Btn onClick={() => setShowLedger(true)} style={FOOT_BTN}>帳簿</Btn>}
           <Btn onClick={() => setShowGallery(true)} style={FOOT_BTN}>画廊</Btn>
           <Btn onClick={() => setShowDecor(true)} style={FOOT_BTN}>調度屋</Btn>
           <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>

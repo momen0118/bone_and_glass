@@ -271,6 +271,17 @@ function basePrice(g, specId) {
   if (g.decor.velvet && SPECIMENS[specId].tags.includes("fancy")) p *= 1.10;
   return p;
 }
+// 学生の予算(蟹の救済の判定に使う)
+const STUDENT_BUDGET = (CUSTOMERS.find((c) => c.id === "gakusei") || {}).budget || 150;
+// 倉庫・棚に、標準値付け(基準価)で学生の予算以下となる完成標本(虫食いを除く)があるか
+// = 通常客の学生に確実に売れる在庫があるか(蟹の救済の抑制条件)
+function hasStudentStock(g) {
+  const ids = [
+    ...Object.keys(g.spec || {}).filter((id) => (g.spec[id] || 0) > 0),
+    ...(g.shelf || []).slice(0, g.shelfSize).filter(Boolean),
+  ];
+  return ids.some((id) => !isWorm(id) && basePrice(g, id) <= STUDENT_BUDGET);
+}
 // 棚上の売価(値付け・隣接・銘板込み)。虫食い品は補正なしの基準価(蟲屋のみが買う)
 function shelfPrice(g, i, sets) {
   const id = g.shelf[i]; if (!id) return 0;
@@ -1145,9 +1156,10 @@ export default function BoneAndGlass() {
     // エンディング: 図鑑コンプ達成後、翌日の夜を発生日として一度だけ確定(以後は減らない)
     let edFireDay = src.edFireDay;
     if (edFireDay == null && !src.endingDone && specComp(src.known)) edFireDay = day + 1;
-    // 蟹の救済(詰み防止・一度きり): 朝の開始時点で金欠かつ仕立て可能な組み合わせが皆無なら倉庫に蟹の亡骸を1つ置く
+    // 蟹の救済(詰み防止・一度きり): 朝の開始時点で金欠・仕立て可能な組み合わせが皆無・
+    // 学生に売れる完成在庫(標準値付けで150G以下・虫食い除く)も無いなら倉庫に蟹の亡骸を1つ置く
     let kaniRescue = false, rescueInv = src.inv;
-    if (!src.kaniRescueDone && src.gold < CHEAPEST_GATHER && !canCraftAny(src)) {
+    if (!src.kaniRescueDone && src.gold < CHEAPEST_GATHER && !canCraftAny(src) && !hasStudentStock(src)) {
       kaniRescue = true;
       rescueInv = { ...src.inv, kani: (src.inv.kani || 0) + 1 };
     }

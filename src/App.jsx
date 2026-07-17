@@ -967,6 +967,10 @@ export default function BoneAndGlass() {
   const [ooyaCardOpen, setOoyaCardOpen] = useState(false);
   // OP(はじまりの朝)の表示ステップ(null=非表示 / 0〜=表示中。新規開始時のみ)
   const [opStep, setOpStep] = useState(null);
+  // タイトルに戻る確認(下部バー・全フェーズ)。店の記録は残す
+  const [toTitleConfirm, setToTitleConfirm] = useState(false);
+  // タイトルの「最初から」確認(既存セーブがある場合のみ)。記録を消してOPへ
+  const [restartConfirm, setRestartConfirm] = useState(false);
 
   useEffect(() => {
     // フェード用のキーフレームを一度だけ注入
@@ -998,6 +1002,26 @@ export default function BoneAndGlass() {
     const ng = newGame(); setG(ng); setScreen("game");
     try { await storage.set(SAVE_KEY, JSON.stringify(ng)); } catch (e) {}
     setOpStep(0); // 新規開始のみOP演出を挟む(続きからでは出さない)
+  };
+  // タイトルの「最初から」: 既存の記録があるときのみ確認を挟み、消してOPへ
+  const startFresh = () => {
+    if (hasSave) { setRestartConfirm(true); return; }
+    startNew();
+  };
+  const confirmRestart = async () => {
+    setRestartConfirm(false);
+    try { await storage.delete(SAVE_KEY); } catch (e) {}
+    setHasSave(false);
+    startNew();
+  };
+  // 下部バーの「タイトル」: 確認のうえタイトルへ戻す(店の記録は残す=保存済みのまま)
+  const goTitle = async () => {
+    setToTitleConfirm(false);
+    try { const r = await storage.get(SAVE_KEY); setHasSave(!!(r && r.value)); } catch (e) { setHasSave(false); }
+    // 開いている面・演出を畳んでタイトルへ
+    setShowBook(false); setShowLedger(false); setShowDecor(false);
+    setShowLetter(false); setScene(null); setOpStep(null);
+    setScreen("title");
   };
   // トーストは後着優先の即時差し替え。差し替え時に表示タイマーをリセットし、常に規定時間フル表示する。
   const flash = (msg) => {
@@ -1369,12 +1393,6 @@ export default function BoneAndGlass() {
     flash(`${cust ? cust.name : ""}に ${SPECIMENS[o.specId].name}×${o.qty} を届けた。${o.reward}G を受け取った。`);
   };
 
-  const resetAll = async () => {
-    if (!window.confirm("記録を消して最初からはじめる?(画像は残ります)")) return;
-    try { await storage.delete(SAVE_KEY); } catch (e) {}
-    startNew();
-  };
-
   // ============================================================
   if (screen === "loading") return (
     <div style={{ minHeight: "100vh", background: C.bg, color: C.dim, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Georgia, 'Yu Mincho', serif" }}>
@@ -1402,9 +1420,22 @@ export default function BoneAndGlass() {
         </p>
         <div style={{ display: "flex", flexDirection: "column", gap: 10, width: 220 }}>
           {hasSave && <Btn primary onClick={loadSave}>続きから</Btn>}
-          <Btn primary={!hasSave} onClick={startNew}>{hasSave ? "最初から" : "開店する"}</Btn>
+          <Btn primary={!hasSave} onClick={startFresh}>{hasSave ? "最初から" : "開店する"}</Btn>
         </div>
       </div>
+
+      {/* タイトルの「最初から」確認(既存の記録があるときのみ) */}
+      {restartConfirm && (
+        <div onClick={() => setRestartConfirm(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, zIndex: 90 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 4, padding: 18, maxWidth: 320, width: "100%" }}>
+            <div style={{ fontSize: 14, lineHeight: 2, color: C.ivory, marginBottom: 16 }}>いまの店の記録は失われる。——最初からはじめようか。</div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <Btn onClick={() => setRestartConfirm(false)}>やめておく</Btn>
+              <Btn primary onClick={confirmRestart}>はじめる</Btn>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 
@@ -2392,10 +2423,6 @@ export default function BoneAndGlass() {
                   </div>
                 )}
               </div>
-              {/* 画廊の廃止に伴う移設(元は画廊の最下部) */}
-              <div style={{ marginTop: 12, borderTop: `1px solid ${C.line}`, paddingTop: 8, textAlign: "right" }}>
-                <button onClick={resetAll} style={{ background: "none", border: "none", color: "#5a4f3d", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>ゲームをはじめから</button>
-              </div>
             </div>
           </div>
         )}
@@ -2421,6 +2448,8 @@ export default function BoneAndGlass() {
           {/* 帳簿: 画廊ボタンの席に交代(画廊は廃止)。開店31日目以降、またはクリア後のいずれか早い方で出現 */}
           {(g.day >= 31 || g.endingDone) && <Btn onClick={() => setShowLedger(true)} style={FOOT_BTN}>帳簿</Btn>}
           <Btn onClick={() => setShowDecor(true)} style={FOOT_BTN}>調度屋</Btn>
+          {/* タイトルへの導線(全フェーズ)。文字色は一段薄く。記録は残す */}
+          <Btn onClick={() => setToTitleConfirm(true)} style={{ ...FOOT_BTN, color: C.dim }}>タイトル</Btn>
           <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
             {g.phase === "morning" && <Btn primary onClick={() => { setCaveEvent(null); setG({ ...g, phase: "workshop", mushiMorning: null, apprenticeMorning: false, banshoMorning: false }); }} style={FOOT_BTN}>工房へ →</Btn>}
             {g.phase === "workshop" && <Btn primary onClick={() => { setSel(null); setG({ ...g, phase: "shelf" }); }} style={FOOT_BTN}>陳列へ →</Btn>}
@@ -2434,6 +2463,19 @@ export default function BoneAndGlass() {
           </div>
         </div>
       </div>
+
+      {/* タイトルに戻る確認(全フェーズ・独白調。店の記録は残す) */}
+      {toTitleConfirm && (
+        <div onClick={() => setToTitleConfirm(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, zIndex: 90 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 4, padding: 18, maxWidth: 320, width: "100%" }}>
+            <div style={{ fontSize: 14, lineHeight: 2, color: C.ivory, marginBottom: 16 }}>タイトルに戻る。<span style={{ color: C.dim, fontSize: 12 }}>(店の記録は残る)</span></div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <Btn onClick={() => setToTitleConfirm(false)}>やめておく</Btn>
+              <Btn primary onClick={goTitle}>戻る</Btn>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 焚き付けの確認ダイアログ */}
       {burnConfirm && (

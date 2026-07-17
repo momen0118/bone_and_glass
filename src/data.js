@@ -169,6 +169,9 @@ export const moonPhase = (day) => (Math.floor((day - 1) / 2) + 1) % 7;
 export const MOON_OPEN = { 4: "月が明るい。往来に人の影が多い。", 0: "月のない晩だ。通りは静かで、暗い。" };
 // 満月の晩に活性化する採集(採集地 → 抽選重みを2倍にする素材)
 export const MOON_BOOST = { umibe: ["kurage"], shitsugen: ["ga", "hikarigoke", "fukurou"], doukutsu: ["koumori"], haikou: ["koumori"] };
+// 採集人の満月報告(2回目の満月の一晩目の朝・その朝に採集依頼を出していたら一度きり)
+// 洞窟・湿原の解禁と同じ「肖像つき・本人のセリフ」形式で朝画面冒頭に出す
+export const MOON_REPORT = "採集人「浜の連中に聞いたんですがね、満月の晩の後は、海月が打ち上がるらしいですよ。……ちょうど今夜じゃないですか」";
 
 // ---------- 処理法 ----------
 export const PROCESSES = {
@@ -247,7 +250,7 @@ export const SUPPLY_SHOP = [
 ];
 
 // ---------- 店の設え ----------
-export const SHELF_EXPAND = { 7: 800, 8: 1200, 9: 1800 };
+export const SHELF_EXPAND = { 7: 800, 8: 1600, 9: 3200 };
 export const DECOR = [
   { id: "lamp",   name: "真鍮の吊りランプ", icon: "🕯️", cost: 1200, desc: "店先が明るくなり、客足が増す(来客+1)" },
   { id: "velvet", name: "天鵞絨の敷布",     icon: "🟥", cost: 1800, desc: "華やかな品が映える(華タグの売価+10%)" },
@@ -580,7 +583,7 @@ export const PRICE_MODES = {
   discount: { name: "勉強", mult: 0.8, buy: 1.25, repBonus: 1, desc: "売価-20%・売れやすく評判も上がる" },
 };
 
-export const RENT = 100, RENT_INTERVAL = 7, MAX_AP = 3;
+export const RENT = 200, RENT_INTERVAL = 7, MAX_AP = 3;
 
 // OP(はじまりの朝)。新規開始時のみ。img=画像+地の文(月独白様式)/ narr=地の文のみ。
 // タップ送り・各枚フェード・スキップなし。最終枚のタップで1日目の朝へ。

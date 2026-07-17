@@ -12,13 +12,14 @@ import {
   PROCESSES, procLevel, RECIPES, SPEC_PROC, SECONDARY,
   SITES, SUPPLY_SHOP, SHELF_EXPAND, DECOR,
   CUSTOMERS, COLLECTOR, OOYA, SHOP_BUYOUT, SETS, ALIASES, PRICE_MODES,
-  GAKUSEI_KOUHAI_LINE, GAKUSEI_GRAD, SWAMP_UNLOCK, CAVE_UNLOCK, SPEC_LORE,
+  GAKUSEI_KOUHAI_LINE, GAKUSEI_GRAD, SWAMP_UNLOCK, CAVE_UNLOCK, LEDGER_LOST, LEDGER_TITLES,
   WORM, isWorm, wormId, baseId, WORM_CATS, specOf, CAMPHOR, mushiDiscover, MUSHIYA,
   moonPhase, MOON_OPEN, MOON_BOOST, MOON_REPORT, KANI_RESCUE, ANA_ALIAS,
   ORDER_UNLOCK_REP, ORDER_CHANCE, ORDER_REWARD_MULT, ORDER_EXPIRED_LOG, ORDER_DECLINE,
   ORDER_CLIENTS, ORDER_FILTER, ORDER_LETTERS, ORDER_SITE_GATE, ORDER_RARE,
   BUYOUT_CELEBRATE, SCENES, OOYA_ORDER,
   APPRENTICE_INTRO, APPRENTICE_HIRE_FIRST, MONTH_REMARKS, RUMORS, RUMOR_CHANCE, OP,
+  GOSSIP, GOSSIP_CHANCE, GOSSIP_SPEAKERS,
   HANAKAGO, BANSHO, OPENING_NIGHT, NINE_BUY,
   RENT, RENT_INTERVAL, MAX_AP,
 } from "./data.js";
@@ -102,13 +103,31 @@ function newGame() {
     ooyaPreviewDone: false,   // 大家の初回家賃予告(6日目の夜)の消化(一度きり)
     kaniRescue: false,        // その朝に蟹の救済イベント行を出すか(翌朝クリア)
     kaniRescueDone: false,    // 蟹の救済(詰み防止)の消化(一度きり)
+    // --- v8.1: 店史(帳簿) ---
+    monthly: [],              // 月次記録の蓄積 [{ m, earn, sold, rep, alias }](30日ごとに締める)
+    monthEarn: 0, monthSold: 0, // 今月(30日区切り)の売上・販売数(締めごとにリセット)
+    soldByItem: {},           // 品別の通算販売数(標本ID → 数。soldByCatと同じ範囲を数える)
+    soldByCust: {},           // 客層別の通算販売数(客ID → 数。soldByCatと同じ範囲を数える)
+    bestMonthEarn: 0,         // 最高月商(月の締めで更新)
+    historyLost: false,       // 旧セーブ引き継ぎ(帳簿に「記録は失われている」を出す)
+    // --- v8.1: うわさ(風聞)の条件追跡 ---
+    gossipLast: {},           // うわさ別の直近表示日(同じうわさの7日抑制)
+    noCamphorDays: [],        // 直近14日のうち樟脳切れだった晩(日番号。樟脳解禁後のみ記録)
+    strongNights: [],         // 直近14日のうち強気の値付けで開店した晩(日番号)
+    lastFurnishDay: 0,        // 調度・棚増設を最後に購入した日(未購入は開店前=0)
+    supplyBoughtToday: 0,     // その日の古物市で買った資材数(翌朝リセット)
+    supplyBigDay: null,       // 古物市で資材を合計10個以上買った日
+    orderMissTotal: 0,        // 特注のすっぽかし(期限切れ)の累計
+    lastOrderMissDay: null,   // 直近のすっぽかし日
+    orderDoneTotal: 0,        // 特注の達成の累計
+    apprenticeOffStreak: 0,   // 見習いを連続で休ませている日数(解禁後・雇った日で0に戻る)
   };
 }
 const clampTrust = (t) => Math.max(-6, Math.min(6, t));
 // 家賃の段階化: 開店前(その日の朝時点)の評判で判定。大家は先週までの噂を聞いて来る
 const rentFor = (rep) => (rep >= 40 ? 400 : rep >= 20 ? 350 : RENT);
-// v1セーブの取り込み
-function migrate(loaded) {
+// v1セーブの取り込み(exportは検証スクリプト用。ゲーム内の挙動は不変)
+export function migrate(loaded) {
   const base = newGame();
   const g = { ...base, ...loaded };
   if (!Array.isArray(g.shelf) || g.shelf.length < 9)
@@ -174,6 +193,25 @@ function migrate(loaded) {
   g.ooyaPreviewDone = loaded.ooyaPreviewDone !== undefined ? !!loaded.ooyaPreviewDone : (loaded.day || 1) > 6;
   g.kaniRescue = !!loaded.kaniRescue;
   g.kaniRescueDone = !!loaded.kaniRescueDone;
+  // v8.1: 店史。旧セーブは「記録は今月から」(過去分は遡らず、帳簿に喪失の一行を出す)
+  g.monthly = loaded.monthly || [];
+  g.historyLost = loaded.historyLost !== undefined ? !!loaded.historyLost : !loaded.monthly;
+  g.monthEarn = loaded.monthEarn || 0;
+  g.monthSold = loaded.monthSold || 0;
+  g.soldByItem = loaded.soldByItem || {};
+  g.soldByCust = loaded.soldByCust || {};
+  g.bestMonthEarn = loaded.bestMonthEarn || 0;
+  // v8.1: うわさの条件追跡。旧セーブは今日から数え始める(過去分は遡らない)
+  g.gossipLast = loaded.gossipLast || {};
+  g.noCamphorDays = loaded.noCamphorDays || [];
+  g.strongNights = loaded.strongNights || [];
+  g.lastFurnishDay = typeof loaded.lastFurnishDay === "number" ? loaded.lastFurnishDay : (loaded.day || 1);
+  g.supplyBoughtToday = loaded.supplyBoughtToday || 0;
+  g.supplyBigDay = typeof loaded.supplyBigDay === "number" ? loaded.supplyBigDay : null;
+  g.orderMissTotal = loaded.orderMissTotal || 0;
+  g.lastOrderMissDay = typeof loaded.lastOrderMissDay === "number" ? loaded.lastOrderMissDay : null;
+  g.orderDoneTotal = loaded.orderDoneTotal || 0;
+  g.apprenticeOffStreak = loaded.apprenticeOffStreak || 0;
   // 買い取り済みの旧セーブ: 翌日を「買い取り当日」とみなしてイベント列を開始する
   g.buyoutDay = typeof loaded.buyoutDay === "number" ? loaded.buyoutDay
     : (g.ownShop && !g.kifujinRumorDone ? g.day + 1 : null);
@@ -322,12 +360,15 @@ function custLine(c, bought, kind) {
 }
 
 // ---------- 夜の営業 ----------
-function simulateNight(g) {
+// (exportは検証スクリプト用。ゲーム内の挙動は不変)
+export function simulateNight(g) {
   const log = [];
   let gold = 0, rep = 0, sold = 0;
   const shelf = [...g.shelf];
   const spec = { ...g.spec };
   const soldByCat = { ...g.soldByCat };
+  const soldByItem = { ...g.soldByItem };
+  const soldByCust = { ...g.soldByCust };
   const custBought = { ...g.custBought };
   const mode = PRICE_MODES[g.priceMode];
   const sets = activeSets(shelf, g.shelfSize);
@@ -354,6 +395,77 @@ function simulateNight(g) {
   const celebrated = { ...g.celebrated }; // 買い取りの祝いセリフ(客層ごと1回)
   let rumorGiven = false; // 銘板の噂は一晩最大1回
 
+  // ---- うわさ(風聞): 一晩最大1回。銘板の噂ヒントとは同夜に両方出ない(ヒント優先) ----
+  let gossipGiven = false;
+  const gossipLast = { ...(g.gossipLast || {}) };
+  // 直近14日の追跡(今夜の分を含めて評価し、そのまま保存値として返す)
+  const camphorOut = g.mushiFirstDone && (g.camphor || 0) <= 0; // 樟脳解禁後の樟脳切れの晩
+  const noCamphorDays = [...(g.noCamphorDays || []).filter((d) => d > g.day - 14 && d < g.day), ...(camphorOut ? [g.day] : [])];
+  const strongNights = [...(g.strongNights || []).filter((d) => d > g.day - 14 && d < g.day), ...(g.priceMode === "strong" ? [g.day] : [])];
+  // #5: soldByCat最多分類が全体の6割以上(その分類の通り名を獲得済みの間のみ)
+  const gossipTopCat = () => {
+    let best = null, bestN = 0, total = 0;
+    for (const [k, v] of Object.entries(soldByCat)) { total += v; if (v > bestN) { best = k; bestN = v; } }
+    return total > 0 && bestN >= total * 0.6 && g.aliasHistory.includes(best) ? best : null;
+  };
+  // #6: 客層別販売の最多客層が明確(4割以上・同数の並びなし)。若い研究者は学生に合算
+  const gossipTopCust = () => {
+    const t = {};
+    for (const [k, v] of Object.entries(soldByCust)) { const key = k === "wakate" ? "gakusei" : k; t[key] = (t[key] || 0) + v; }
+    let best = null, bestN = 0, tie = false, total = 0;
+    for (const [k, v] of Object.entries(t)) {
+      total += v;
+      if (v > bestN) { best = k; bestN = v; tie = false; }
+      else if (v === bestN && v > 0) tie = true;
+    }
+    return best && !tie && bestN >= total * 0.4 && GOSSIP_SPEAKERS.includes(best) ? best : null;
+  };
+  // 話者固定うわさの成立条件(条件を満たしている間だけ抽選対象)
+  const gossipConds = {
+    // 未購入の調度・棚増設が残っている × 30日間それらを購入していない × 所持金がその最安額の3倍以上
+    g1: () => {
+      const costs = DECOR.filter((d) => !g.decor[d.id]).map((d) => d.cost);
+      if (SHELF_EXPAND[g.shelfSize + 1]) costs.push(SHELF_EXPAND[g.shelfSize + 1]);
+      return costs.length > 0 && g.day - (g.lastFurnishDay || 0) >= 30 && g.gold >= Math.min(...costs) * 3;
+    },
+    g2: () => g.mushiFirstDone && noCamphorDays.length >= 7,
+    g3: () => strongNights.length >= 8,
+    g4: () => (g.mushiSold || 0) >= 5 && !g.anaAlias,
+    g7: () => (g.orderMissTotal || 0) >= 1 && g.lastOrderMissDay != null && g.day - g.lastOrderMissDay <= 30,
+    g8: () => g.supplyBigDay != null && g.day > g.supplyBigDay && g.day <= g.supplyBigDay + 3,
+    // 今夜も休みなら「直近7日すべて休ませている」が成立する(過去6日+今夜で7日)
+    g9: () => g.apprenticeSeen && !g.apprentice && (g.apprenticeOffStreak || 0) >= 6,
+    g10: () => (g.orderDoneTotal || 0) >= 5 && (g.lastOrderMissDay == null || g.day - g.lastOrderMissDay > 30),
+  };
+  // セリフ表示の直前判定。3%で、その話者が言えるうわさから1本(7日抑制中は除く)。無ければ null
+  const rollGossip = (c) => {
+    if (gossipGiven || rumorGiven || !GOSSIP_SPEAKERS.includes(c.id)) return null;
+    if (Math.random() >= GOSSIP_CHANCE) return null;
+    const fresh = (key) => !(gossipLast[key] && g.day - gossipLast[key] < 7);
+    const cands = [];
+    for (const [key, def] of Object.entries(GOSSIP)) {
+      if (key === "g6" || def.cid !== c.id || !fresh(key)) continue;
+      if (key === "g5") {
+        const cat = gossipTopCat();
+        if (cat) cands.push({ key, line: def.line(CAT_NAME[cat]) });
+      } else if (gossipConds[key]()) {
+        cands.push({ key, line: def.line });
+      }
+    }
+    if (fresh("g6")) {
+      const top = gossipTopCust();
+      if (top && top !== c.id) { // 最多客層本人は話者から除外
+        const nm = (CUSTOMERS.find((x) => x.id === top) || {}).name;
+        cands.push({ key: "g6", line: GOSSIP.g6.lines[c.id](nm) });
+      }
+    }
+    if (!cands.length) return null;
+    const hit = pick(cands);
+    gossipGiven = true;
+    gossipLast[hit.key] = g.day;
+    return hit.line;
+  };
+
   const priceAt = (i) => {
     let p = basePrice(g, shelf[i]) * mode.mult;
     if (adjBonus(shelf, i, g.shelfSize)) p *= 1.15;
@@ -373,7 +485,7 @@ function simulateNight(g) {
     const budget = c.id === "gakusei" && gardenActive ? Math.round(c.budget * 1.3) : c.budget;
     const afford = slots.filter((s) => priceAt(s.i) >= (c.floor || 0) && priceAt(s.i) <= budget);
     if (!afford.length) {
-      const line = custLine(c, bought, "poor");
+      const line = rollGossip(c) || custLine(c, bought, "poor");
       log.push({ t: "misc", cid: c.id, text: `${c.name}「${line}」`, line, ...(opts.tag || {}) });
       return { bought: false };
     }
@@ -395,16 +507,19 @@ function simulateNight(g) {
       shelf[target.i] = null;
       gold += price; sold++;
       soldByCat[sp.cat] = (soldByCat[sp.cat] || 0) + 1;
+      soldByItem[target.id] = (soldByItem[target.id] || 0) + 1;
+      soldByCust[c.id] = (soldByCust[c.id] || 0) + 1;
       custBought[c.id] = bought + 1;
       rep += 1 + (sp.tags.includes("rare") ? 1 : 0) + mode.repBonus;
       const big = price >= 400;
-      // 買い取りの祝い(翌日以降・購入成立時に1回だけ buyセリフを差し替える)
-      const line = opts.celebrateLine || (big ? custLine(c, bought, "big") : custLine(c, bought, "buy"));
+      // セリフの優先順: 買い取りの祝い(一度きり) > うわさ(3%) > 通常のbuy/bigセリフ
+      const line = opts.celebrateLine || rollGossip(c) || (big ? custLine(c, bought, "big") : custLine(c, bought, "buy"));
       log.push({ t: "sale", cid: c.id, big, text: `${c.name}「${line}」— ${sp.icon} ${sp.name}を ${price}G で購入。`, line, itemId: target.id, price, ...(opts.tag || {}) });
       return { bought: true };
     }
-    // 銘板の噂: passした客が、担当銘板のうち未発見のものがあれば 8% で噂を落とす(一晩1回)
-    if (!rumorGiven) {
+    // 銘板の噂: passした客が、担当銘板のうち未発見のものがあれば 8% で噂を落とす(一晩1回)。
+    // うわさとは同夜に両方出ない(ここが先に判定される=ヒント優先)
+    if (!rumorGiven && !gossipGiven) {
       const undiscovered = (RUMORS[c.id] || []).filter((r) => !g.knownSets.includes(r.set));
       if (undiscovered.length && Math.random() < RUMOR_CHANCE) {
         rumorGiven = true;
@@ -413,7 +528,7 @@ function simulateNight(g) {
         return { bought: false };
       }
     }
-    const line = custLine(c, bought, "pass");
+    const line = rollGossip(c) || custLine(c, bought, "pass");
     log.push({ t: "misc", cid: c.id, text: `${c.name}「${line}」`, line, ...(opts.tag || {}) });
     return { bought: false };
   };
@@ -434,6 +549,8 @@ function simulateNight(g) {
         const sp = SPECIMENS[shelf[i]];
         total += price; gold += price; sold++;
         soldByCat[sp.cat] = (soldByCat[sp.cat] || 0) + 1;
+        soldByItem[shelf[i]] = (soldByItem[shelf[i]] || 0) + 1;
+        soldByCust.koujika = (soldByCust.koujika || 0) + 1;
         rep += 1 + (sp.tags.includes("rare") ? 1 : 0) + mode.repBonus;
         shelf[i] = null;
       }
@@ -476,6 +593,8 @@ function simulateNight(g) {
       shelf[target.i] = null;
       gold += price; sold++;
       soldByCat[sp.cat] = (soldByCat[sp.cat] || 0) + 1;
+      soldByItem[target.id] = (soldByItem[target.id] || 0) + 1;
+      soldByCust.gakusei = (soldByCust.gakusei || 0) + 1;
       rep += 1 + (sp.tags.includes("rare") ? 1 : 0) + mode.repBonus;
       custBought.gakusei = 0; // 後輩に代替わり(この購入は数に残さない)
       log.push({
@@ -662,10 +781,11 @@ function simulateNight(g) {
       else if (stockRares.length) { offer = { specId: pick(stockRares), source: "stock" }; }
     }
   }
-  return { log, gold, rep, sold, rentLog, rentPaid, wageText, shelf, spec, soldByCat, custBought, offer,
+  return { log, gold, rep, sold, rentLog, rentPaid, wageText, shelf, spec, soldByCat, soldByItem, soldByCust, custBought, offer,
     gakuseiGraduated: graduated, swampUnlocked,
     camphor, mushiFirstDone, mushiFirstNight, mushiMorning, mushiSold, anaAlias,
-    celebrated, kifujinRumor, openingTonight, nineBuy, ooyaPreview };
+    celebrated, kifujinRumor, openingTonight, nineBuy, ooyaPreview,
+    gossipLast, noCamphorDays, strongNights };
 }
 
 // ---------- 画像 ----------
@@ -850,9 +970,7 @@ export default function BoneAndGlass() {
   const [fileImgs, setFileImgs] = useState(null);
   const [sel, setSel] = useState(null);
   const [shelfPickFor, setShelfPickFor] = useState(null);
-  const [showBook, setShowBook] = useState(false);
-  const [bookTab, setBookTab] = useState("spec");
-  const [bookDetail, setBookDetail] = useState(null); // 図鑑の詳細ビュー(発見済み標本ID)
+  const [showLedger, setShowLedger] = useState(false); // 帳簿(店史)モーダル
   const [showGallery, setShowGallery] = useState(false);
   const [showDecor, setShowDecor] = useState(false);
   const [toast, setToast] = useState(null);
@@ -951,7 +1069,10 @@ export default function BoneAndGlass() {
     const total = s.cost * qty;
     if (g.gold < total) return flash("お金が足りない");
     const inv = { ...g.inv }; inv[s.id] = (inv[s.id] || 0) + qty;
-    setG({ ...g, gold: g.gold - total, inv });
+    // その日の資材購入数。合計10個に達した日を控える(うわさ#8)
+    const supplyBoughtToday = (g.supplyBoughtToday || 0) + qty;
+    setG({ ...g, gold: g.gold - total, inv, supplyBoughtToday,
+      supplyBigDay: supplyBoughtToday >= 10 ? g.day : g.supplyBigDay });
   };
   // 樟脳を買う(5晩分。所持は1個まで=残晩数があるうちは買えない)
   const buyCamphor = () => {
@@ -972,12 +1093,12 @@ export default function BoneAndGlass() {
     const next = g.shelfSize + 1, cost = SHELF_EXPAND[next];
     if (!cost) return;
     if (g.gold < cost) return flash("お金が足りない");
-    setG({ ...g, gold: g.gold - cost, shelfSize: next });
+    setG({ ...g, gold: g.gold - cost, shelfSize: next, lastFurnishDay: g.day });
     flash(`大工が棚を増やしてくれた(${next}枠)`);
   };
   const buyDecor = (d) => {
     if (g.decor[d.id] || g.gold < d.cost) return;
-    setG({ ...g, gold: g.gold - d.cost, decor: { ...g.decor, [d.id]: true } });
+    setG({ ...g, gold: g.gold - d.cost, decor: { ...g.decor, [d.id]: true }, lastFurnishDay: g.day });
     flash(`${d.name}を設えた`);
   };
   // 店の買い取り: 実行した瞬間、大家との専用イベント表示に切り替える
@@ -1070,7 +1191,8 @@ export default function BoneAndGlass() {
       gold: g.gold + res.gold, rep: g.rep + res.rep,
       nightLog: log, nightEarn: res.gold, nightRent: res.rentLog ? res.rentLog.text : null,
       totalEarn: g.totalEarn + Math.max(0, res.gold), totalSold: g.totalSold + res.sold,
-      soldByCat: res.soldByCat, custBought: res.custBought,
+      monthEarn: (g.monthEarn || 0) + Math.max(0, res.gold), monthSold: (g.monthSold || 0) + res.sold,
+      soldByCat: res.soldByCat, soldByItem: res.soldByItem, soldByCust: res.soldByCust, custBought: res.custBought,
       alias: newAlias, aliasHistory,
       offer: res.offer, offerResult: null,
       lastRent: res.rentPaid != null ? res.rentPaid : g.lastRent,
@@ -1083,6 +1205,7 @@ export default function BoneAndGlass() {
       openingNightDone: g.openingNightDone || res.openingTonight,
       nineBuyDone: g.nineBuyDone || res.nineBuy,
       ooyaPreviewDone: g.ooyaPreviewDone || res.ooyaPreview,
+      gossipLast: res.gossipLast, noCamphorDays: res.noCamphorDays, strongNights: res.strongNights,
     });
     setNightView({ idx: 0, sub: 1, collapsed: false });
     // 貴婦人の噂: 開店直後、全面のタップ送り演出を挟む(演出後は通常の営業カードへ)
@@ -1103,6 +1226,7 @@ export default function BoneAndGlass() {
     if (choice === "fair") {
       const st = removeItem(g);
       setG({ ...st, gold: st.gold + fair, rep: st.rep + 3, nightEarn: st.nightEarn + fair, totalEarn: st.totalEarn + fair, totalSold: st.totalSold + 1,
+        monthEarn: (st.monthEarn || 0) + fair, monthSold: (st.monthSold || 0) + 1,
         offer: null, offerResult: `${sp.name}を ${fair}G で譲った。蒐集家「${COLLECTOR.dealFair}」`, collectorCd: 2,
         trust: clampTrust((g.trust || 0) + 1) });
     } else if (choice === "high") {
@@ -1115,6 +1239,7 @@ export default function BoneAndGlass() {
       if (Math.random() < highChance) {
         const st = removeItem(g);
         setG({ ...st, gold: st.gold + high, rep: st.rep + 2, nightEarn: st.nightEarn + high, totalEarn: st.totalEarn + high, totalSold: st.totalSold + 1,
+          monthEarn: (st.monthEarn || 0) + high, monthSold: (st.monthSold || 0) + 1,
           offer: null, offerResult: `強気の値をつけた……通った。${sp.name}を ${high}G で売却。蒐集家「${COLLECTOR.dealHigh}」`, collectorCd: 2,
           trust: clampTrust(trust + 1) });
       } else {
@@ -1140,12 +1265,22 @@ export default function BoneAndGlass() {
   const advanceDay = (extra = {}) => {
     const src = { ...g, ...extra };
     const day = src.day + 1;
+    // 店史: 月の締め(30日ごと)。その月の売上・販売数と、月末時点の評判・通り名を蓄積する
+    let monthly = src.monthly || [], monthEarn = src.monthEarn || 0, monthSold = src.monthSold || 0,
+      bestMonthEarn = src.bestMonthEarn || 0;
+    if (src.day % 30 === 0) {
+      monthly = [...monthly, { m: src.day / 30, earn: monthEarn, sold: monthSold, rep: src.rep, alias: src.alias }];
+      bestMonthEarn = Math.max(bestMonthEarn, monthEarn);
+      monthEarn = 0; monthSold = 0;
+    }
     // 特注: 期限切れ判定(無断すっぽかし)。評判-4、かつ依頼人のcustBought -3(下限0)。ログは従来の一行のまま
     let order = src.order, rep = src.rep, orderExpired = false, letter = null, custBought = src.custBought;
+    let orderMissTotal = src.orderMissTotal || 0, lastOrderMissDay = src.lastOrderMissDay;
     if (order && day > order.dueDay) {
       custBought = { ...custBought, [order.client]: Math.max(0, (custBought[order.client] || 0) - 3) };
       rep = Math.max(0, rep - 4);
       order = null; orderExpired = true;
+      orderMissTotal += 1; lastOrderMissDay = day; // すっぽかしの記録(うわさ#7・#10)
     }
     // 依頼を受けていない朝は、確率で手紙が1通届く(解禁評判以上・該当プールがあるとき)
     if (!order && rep >= ORDER_UNLOCK_REP && Math.random() < ORDER_CHANCE) letter = rollOrderLetter({ ...src, rep });
@@ -1174,6 +1309,11 @@ export default function BoneAndGlass() {
       banshoMorning, banshoAlias: src.banshoAlias || banshoMorning,
       moonReport: false, // 満月報告は当日の朝のみ。翌朝クリア(消化フラグ moonReportDone は保持)
       inv: rescueInv, kaniRescue, kaniRescueDone: src.kaniRescueDone || kaniRescue,
+      monthly, monthEarn, monthSold, bestMonthEarn,
+      orderMissTotal, lastOrderMissDay,
+      supplyBoughtToday: 0, // 古物市の当日購入数は毎朝リセット
+      // 見習いを休ませた日が続くと伸びる(雇っていた日・解禁前は0に戻る)
+      apprenticeOffStreak: src.apprenticeSeen && !src.apprentice ? (src.apprenticeOffStreak || 0) + 1 : 0,
     };
     // 大家の依頼: 4品すべて倉庫に揃った朝は自動で開く。揃っていなければ畳む。
     setOoyaCardOpen(ooyaOrderReady(ng));
@@ -1254,7 +1394,8 @@ export default function BoneAndGlass() {
     const cust = CUSTOMERS.find((c) => c.id === o.client);
     const custBought = { ...g.custBought, [o.client]: (g.custBought[o.client] || 0) + o.qty };
     // 報酬入金・評判+2・常連度に加算。soldByCat(通り名)には数えない
-    setG({ ...g, spec, order: null, gold: g.gold + o.reward, rep: g.rep + 2, custBought });
+    setG({ ...g, spec, order: null, gold: g.gold + o.reward, rep: g.rep + 2, custBought,
+      orderDoneTotal: (g.orderDoneTotal || 0) + 1 }); // 達成の記録(うわさ#10)
     flash(`${cust ? cust.name : ""}に ${SPECIMENS[o.specId].name}×${o.qty} を届けた。${o.reward}G を受け取った。`);
   };
 
@@ -2039,134 +2180,70 @@ export default function BoneAndGlass() {
           </div>
         )}
 
-        {/* ===== 図鑑(タブ付き) ===== */}
-        {showBook && (
-          <div onClick={() => setShowBook(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, zIndex: 50 }}>
-            <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.brass}`, borderRadius: 4, padding: 16, maxWidth: 480, width: "100%", maxHeight: "82vh", overflowY: "auto" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10, alignItems: "center" }}>
-                <div style={{ display: "flex", gap: 6 }}>
-                  {[["spec", "標本"], ["plate", "銘板"], ["alias", "通り名"]].map(([k, n]) => (
-                    <button key={k} onClick={() => setBookTab(k)}
-                      style={{ fontFamily: "inherit", cursor: "pointer", fontSize: 12, padding: "4px 10px", borderRadius: 4, letterSpacing: "0.15em", background: bookTab === k ? C.brass : "transparent", color: bookTab === k ? "#1a140c" : C.dim, border: `1px solid ${bookTab === k ? C.brass : C.line}` }}>{n}</button>
-                  ))}
-                </div>
-                <button onClick={() => setShowBook(false)} style={{ background: "none", border: "none", color: C.dim, cursor: "pointer", fontFamily: "inherit" }}>閉じる</button>
-              </div>
-
-              {bookTab === "spec" && (
-                <>
-                  <div style={{ fontSize: 11, color: C.dim, marginBottom: 8, lineHeight: 1.7 }}>
-                    分類(骨格・昆虫・液浸・鉱物・工芸)は棚の並びと銘板に効く。珍・華・学の印は客の好みに効く。
-                  </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-                    {Object.entries(SPECIMENS).map(([id, s]) => {
-                      const found = knownSpecs.has(id);
-                      // 花籠は発見するまで枠ごと伏せる(標本タブの最後・非売)
-                      if (id === HANAKAGO && !found) return null;
-                      const recipe = found ? RECIPES.find((r) => r.to === id) : null;
-                      return (
-                        <div key={id} onClick={() => found && setBookDetail(id)}
-                          style={{ border: `1px solid ${C.line}`, borderRadius: 5, padding: 8, opacity: found ? 1 : 0.45, cursor: found ? "pointer" : "default" }}>
-                          <div style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 5 }}>
-                            {found ? <SpecIcon id={id} fileImgs={fileImgs} size={28} emojiSize={13} /> : "▪"} <span>{found ? s.name : "?????"}</span>
-                          </div>
-                          <div style={{ fontSize: 10, color: C.dim, marginTop: 2 }}>
-                            {found ? <>{CAT_NAME[s.cat]} · {s.nosale ? "非売" : `${s.price}G`}{s.tags.map((t) => <TagChip key={t} t={t} />)}</> : "未発見"}
-                          </div>
-                          {recipe && (
-                            <div style={{ fontSize: 10, color: C.dim, marginTop: 2 }}>
-                              仕立て: {PROCESSES[recipe.proc].name}{(recipe.minLv || 1) >= 2 ? ` Lv${recipe.minLv}` : ""}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </>
-              )}
-
-              {bookTab === "plate" && (
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  <div style={{ fontSize: 11, color: C.dim, marginBottom: 2 }}>良い陳列には銘板が掲がる。対象の売価+20%、決まった客を呼び寄せる。</div>
-                  {SETS.map((s) => {
-                    const found = g.knownSets.includes(s.id);
-                    return (
-                      <div key={s.id} style={{ border: `1px solid ${found ? C.brass : C.line}`, borderRadius: 5, padding: 8, opacity: found ? 1 : 0.5 }}>
-                        <div style={{ fontSize: 13, color: found ? C.brass : C.ivory }}>✦ {found ? s.name : "?????"}</div>
-                        <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>{found ? s.desc : "未発見の陳列"}</div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {bookTab === "alias" && (
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  <div style={{ fontSize: 11, color: C.dim, marginBottom: 2 }}>売れ筋の分類で、街での呼ばれ方が変わる。名は客層の足を引く。</div>
-                  {Object.entries(ALIASES).map(([cat, a]) => {
-                    const found = g.aliasHistory.includes(cat);
-                    const now = aliasCat === cat;
-                    return (
-                      <div key={cat} style={{ border: `1px solid ${now ? C.brass : C.line}`, borderRadius: 5, padding: 8, opacity: found ? 1 : 0.5 }}>
-                        <div style={{ fontSize: 13 }}>{found ? `『${a.name}』` : "『???』"}{now && <span style={{ fontSize: 10, color: C.brass, marginLeft: 6 }}>いまの通り名</span>}</div>
-                        <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>{found ? `${CAT_NAME[cat]}の店として知られた証` : `${CAT_NAME[cat]}を売り込めば…`}</div>
-                      </div>
-                    );
-                  })}
-                  {/* 隠し枠「穴物堂」: 獲得後のみ表示(未獲得時は一切出さない) */}
-                  {g.anaAlias && (
-                    <div style={{ border: `1px solid ${C.brass}`, borderRadius: 5, padding: 8 }}>
-                      <div style={{ fontSize: 13, color: C.brass }}>『{ANA_ALIAS.name}』</div>
-                      <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>{ANA_ALIAS.desc}</div>
-                    </div>
-                  )}
-                  {/* 「万象堂」: 花籠完成後のみ表示(独立枠) */}
-                  {g.banshoAlias && (
-                    <div style={{ border: `1px solid ${C.brass}`, borderRadius: 5, padding: 8 }}>
-                      <div style={{ fontSize: 13, color: C.brass }}>『{BANSHO.name}』</div>
-                      <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>{BANSHO.desc}</div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* ===== 図鑑の詳細ビュー(発見済み標本のみ) ===== */}
-        {showBook && bookDetail && (() => {
-          const s = SPECIMENS[bookDetail];
-          const recipe = RECIPES.find((r) => r.to === bookDetail);
-          const url = fileImgs && fileImgs.specimens && fileImgs.specimens[bookDetail];
+        {/* ===== 帳簿(店史) ===== */}
+        {showLedger && (() => {
+          const maxEntry = (obj) => {
+            let bk = null, bn = 0;
+            for (const [k, v] of Object.entries(obj || {})) if (v > bn) { bk = k; bn = v; }
+            return [bk, bn];
+          };
+          const [topItem] = maxEntry(g.soldByItem);
+          const [topCat] = maxEntry(g.soldByCat);
+          // 客層別: 若い研究者は学生に合算。最多が同数で並んでいる間は「最多」が立たない
+          const custTally = {};
+          Object.entries(g.soldByCust || {}).forEach(([k, v]) => {
+            const key = k === "wakate" ? "gakusei" : k;
+            custTally[key] = (custTally[key] || 0) + v;
+          });
+          const [topCust, topCustN] = maxEntry(custTally);
+          const custTie = Object.values(custTally).filter((v) => v === topCustN).length > 1;
+          const custName = (id) => (CUSTOMERS.find((c) => c.id === id) || {}).name || "";
+          const months = [...(g.monthly || [])].reverse(); // 新しい順
+          const tally = [
+            ["一番売った品", topItem ? SPECIMENS[topItem].name : "──"],
+            ["一番売った分類", topCat ? CAT_NAME[topCat] : "──"],
+            ["一番売れた客層", topCust && !custTie ? custName(topCust) : "──"],
+            ["最高月商", `${g.bestMonthEarn || 0}G`],
+            ["通り名の変遷", g.aliasHistory.length ? g.aliasHistory.map((c) => ALIASES[c].name).join(" → ") : "──"],
+          ];
+          const title = topCust && !custTie ? LEDGER_TITLES[topCust] : null;
           return (
-            <div onClick={() => setBookDetail(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, zIndex: 55 }}>
-              <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.brass}`, borderRadius: 4, padding: 16, maxWidth: 380, width: "100%", maxHeight: "82vh", overflowY: "auto" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                  <div style={{ fontSize: 15, letterSpacing: "0.1em" }}>{s.name}</div>
-                  <button onClick={() => setBookDetail(null)} style={{ background: "none", border: "none", color: C.dim, cursor: "pointer", fontFamily: "inherit" }}>閉じる</button>
+            <div onClick={() => setShowLedger(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, zIndex: 50 }}>
+              <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.brass}`, borderRadius: 4, padding: 16, maxWidth: 480, width: "100%", maxHeight: "82vh", overflowY: "auto" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
+                  <div style={{ letterSpacing: "0.25em", color: C.brass, fontSize: 13 }}>帳簿</div>
+                  <button onClick={() => setShowLedger(false)} style={{ background: "none", border: "none", color: C.dim, cursor: "pointer", fontFamily: "inherit" }}>閉じる</button>
                 </div>
-                <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}>
-                  {url ? (
-                    <span style={{ width: "76%", aspectRatio: "1 / 1", borderRadius: 8, overflow: "hidden", display: "block", border: `1px solid ${C.line}` }}>
-                      <img src={url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", transform: `scale(${specTrim(bookDetail)})` }} />
-                    </span>
-                  ) : (
-                    <div style={{ width: "76%", aspectRatio: "1 / 1", borderRadius: 8, border: `1px solid ${C.line}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 72, background: "#171310" }}>{s.icon}</div>
+                {/* 月ごとの頁(歴代の月次記録・新しい順)。旧セーブは末尾(記録の始まりより前)に喪失の一行 */}
+                <div style={{ display: "flex", flexDirection: "column" }}>
+                  {months.map((r) => (
+                    <div key={r.m} style={{ borderTop: `1px solid ${C.line}`, padding: "8px 2px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 13 }}>
+                        <span style={{ color: C.brass }}>{r.m}ヶ月目</span>
+                        <span style={{ fontVariantNumeric: "tabular-nums" }}>売上 {r.earn}G</span>
+                      </div>
+                      <div style={{ fontSize: 12, color: C.dim, marginTop: 2 }}>
+                        販売 {r.sold}点 · 評判 {r.rep} · {r.alias ? `『${ALIASES[r.alias].name}』` : "──"}
+                      </div>
+                    </div>
+                  ))}
+                  {g.historyLost && (
+                    <div style={{ borderTop: `1px solid ${C.line}`, padding: "8px 2px", fontSize: 12, color: C.dim, lineHeight: 1.8 }}>{LEDGER_LOST}</div>
                   )}
                 </div>
-                <div style={{ fontSize: 12, color: C.dim, textAlign: "center" }}>
-                  {CAT_NAME[s.cat]} · {s.nosale ? "非売" : `${s.price}G`}{s.tags.map((t) => <TagChip key={t} t={t} />)}
+                {/* 集計欄 */}
+                <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 4, paddingTop: 10 }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {tally.map(([k, v]) => (
+                      <div key={k} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12, fontSize: 13 }}>
+                        <span style={{ color: C.dim, fontSize: 12, whiteSpace: "nowrap" }}>{k}</span>
+                        <span style={{ textAlign: "right" }}>{v}</span>
+                      </div>
+                    ))}
+                  </div>
+                  {/* 客層称号(通算の最多客層に応じて一行) */}
+                  {title && <div style={{ marginTop: 12, fontSize: 12, color: C.dim, lineHeight: 1.8 }}>{title}</div>}
                 </div>
-                {recipe && (
-                  <div style={{ fontSize: 12, color: C.dim, textAlign: "center", marginTop: 4 }}>
-                    仕立て: {PROCESSES[recipe.proc].name}{(recipe.minLv || 1) >= 2 ? ` Lv${recipe.minLv}` : ""}
-                  </div>
-                )}
-                {SPEC_LORE[bookDetail] && (
-                  <div style={{ fontSize: 13, color: C.ivory, lineHeight: 2, marginTop: 12, borderTop: `1px solid ${C.line}`, paddingTop: 10 }}>
-                    {SPEC_LORE[bookDetail]}
-                  </div>
-                )}
               </div>
             </div>
           );
@@ -2298,7 +2375,8 @@ export default function BoneAndGlass() {
       {/* 下部バー */}
       <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, background: "rgba(20,17,13,0.96)", borderTop: `1px solid ${C.line}`, paddingTop: 10, paddingLeft: 10, paddingRight: 10, paddingBottom: "calc(10px + env(safe-area-inset-bottom, 0px))" }}>
         <div style={{ maxWidth: 560, margin: "0 auto", display: "flex", gap: 6, alignItems: "center" }}>
-          <Btn onClick={() => { setBookTab("spec"); setBookDetail(null); setShowBook(true); }} style={FOOT_BTN}>図鑑</Btn>
+          {/* 帳簿: 図鑑ボタンと交代(図鑑は廃止)。開店31日目以降、またはクリア後のいずれか早い方で出現 */}
+          {(g.day >= 31 || g.endingDone) && <Btn onClick={() => setShowLedger(true)} style={FOOT_BTN}>帳簿</Btn>}
           <Btn onClick={() => setShowGallery(true)} style={FOOT_BTN}>画廊</Btn>
           <Btn onClick={() => setShowDecor(true)} style={FOOT_BTN}>調度屋</Btn>
           <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>

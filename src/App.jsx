@@ -2483,18 +2483,19 @@ export default function BoneAndGlass() {
             const key = k === "wakate" ? "gakusei" : k;
             custTally[key] = (custTally[key] || 0) + v;
           });
-          const [topCust, topCustN] = maxEntry(custTally);
-          const custTie = Object.values(custTally).filter((v) => v === topCustN).length > 1;
+          // 販売実績があれば必ず最多客層を出す(同数の並びでも maxEntry が挿入順で一意に決める)。
+          // データが無いときだけ ──。以前は同数タイを ── にしていたが、記録済みでも空に見える不具合だった。
+          const [topCust] = maxEntry(custTally);
           const custName = (id) => (id === "saikushi" ? SAIKUSHI.name : (CUSTOMERS.find((c) => c.id === id) || {}).name) || "";
           const months = [...(g.monthly || [])].reverse(); // 新しい順
           const tally = [
             ["一番売った品", topItem ? SPECIMENS[topItem].name : "──"],
             ["一番売った分類", topCat ? CAT_NAME[topCat] : "──"],
-            ["一番売れた客層", topCust && !custTie ? custName(topCust) : "──"],
+            ["一番売れた客層", topCust ? custName(topCust) : "──"],
             ["最高月商", `${g.bestMonthEarn || 0}G`],
             ["通り名の変遷", g.aliasHistory.length ? g.aliasHistory.map((c) => ALIASES[c].name).join(" → ") : "──"],
           ];
-          const title = topCust && !custTie ? LEDGER_TITLES[topCust] : null;
+          const title = topCust ? LEDGER_TITLES[topCust] : null;
           return (
             <div onClick={() => setShowLedger(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, zIndex: 50 }}>
               <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.brass}`, borderRadius: 4, padding: 16, maxWidth: 480, width: "100%", maxHeight: "82vh", overflowY: "auto" }}>

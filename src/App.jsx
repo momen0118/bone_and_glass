@@ -270,13 +270,27 @@ const siteUnlocked = (g, s) =>
   : s.id === "doukutsu" ? g.caveUnlocked
   : s.id === "haikou" ? g.haikouUnlocked : true;
 // 大発生の抽選(クリア後・毎朝)。解禁済み採集地からランダム一箇所、その地のテーブルからランダム一種
-function rollOutbreak(g) {
+// (exportは検証スクリプト用。ゲーム内の挙動は不変)
+export function rollOutbreak(g) {
   if (!g.endingDone || Math.random() >= OUTBREAK_CHANCE) return null;
   const sites = SITES.filter((s) => siteUnlocked(g, s));
   if (!sites.length) return null;
   const site = pick(sites);
   const mat = pick(site.table.map(([m]) => m)); // レア含む一律(重み無視・減衰なし)
   return { site: site.id, mat };
+}
+// 採集の抽選テーブルを組む(満月ブースト×2、大発生×OUTBREAK_MULT を素材重みに乗せる)。
+// day基準の満月判定は前夜=day-1。gatherと検証で共通に使う純関数(exportは検証用)。
+export function gatherTable(g, site) {
+  let table = site.table;
+  if (moonPhase(g.day - 1) === 4 && MOON_BOOST[site.id]) {
+    const boost = MOON_BOOST[site.id];
+    table = table.map(([m, w]) => [m, boost.includes(m) ? w * 2 : w]);
+  }
+  if (g.outbreak && g.outbreak.site === site.id) {
+    table = table.map(([m, w]) => [m, m === g.outbreak.mat ? w * OUTBREAK_MULT : w]);
+  }
+  return table;
 }
 // 現在の手持ち(倉庫の素材・在庫標本・必要な資材・工程Lv)で実行できる仕立てが1つでもあるか
 function canCraftAny(g) {
@@ -1091,17 +1105,8 @@ export default function BoneAndGlass() {
     // 通常は2個。馴染みの地(この採集地への依頼が8回目以降)は35%で3個目が付く(表示・通知なし)
     const nth = (g.siteCount[site.id] || 0) + 1;
     const amount = 2 + (nth >= 8 && Math.random() < 0.35 ? 1 : 0);
-    // 前夜が満月だった朝の採集は特定素材の抽選重みを2倍(海月・蛾・夜光苔・梟・蝙蝠。表示・通知なし)
-    // 満月は2晩あるため、その各翌朝=計2回の朝が対象になる
-    let table = site.table;
-    if (moonPhase(g.day - 1) === 4 && MOON_BOOST[site.id]) {
-      const boost = MOON_BOOST[site.id];
-      table = site.table.map(([m, w]) => [m, boost.includes(m) ? w * 2 : w]);
-    }
-    // v8.3: 大発生。この採集地が対象なら、その素材の抽選重みを3倍(満月ブーストとは独立に乗る)
-    if (g.outbreak && g.outbreak.site === site.id) {
-      table = table.map(([m, w]) => [m, m === g.outbreak.mat ? w * OUTBREAK_MULT : w]);
-    }
+    // 前夜が満月だった朝は特定素材×2、大発生の対象素材は×3(gatherTableに集約・表示や通知はしない)
+    const table = gatherTable(g, site);
     const got = {};
     for (let i = 0; i < amount; i++) { const m = weightedPick(table); got[m] = (got[m] || 0) + 1; }
     const inv = { ...g.inv };

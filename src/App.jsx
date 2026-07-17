@@ -26,6 +26,7 @@ import {
   ORDER_BIG_CHANCE, ORDER_BIG_TERM, ORDER_BIG_ITEMS,
   APPRENTICE_PROMOTE, APPRENTICE_DAYS_TOTAL, APPRENTICE_DAYS_POSTCLEAR,
   APPRENTICE_WAGE, ARTISAN_WAGE, APPRENTICE_AP, ARTISAN_AP,
+  ENGRAVE_THRESHOLD, ENGRAVE_MARK, MASTER_LINE,
 } from "./data.js";
 import { storage } from "./storage.js";
 import { loadFileImages, FILE_ZOOM, specTrim, portraitFrame, portraitVignette } from "./images.js";
@@ -1522,6 +1523,9 @@ export default function BoneAndGlass() {
   const wormCount = specEntries.filter(([k]) => isWorm(k)).reduce((n, [, v]) => n + v, 0)
     + g.shelf.filter((x) => x && isWorm(x)).length;
   const knownSpecs = new Set(RECIPES.filter((r) => g.known.includes(r.id)).map((r) => r.to));
+  // v8.3: 図鑑の刻印。品別の通算販売40個で刻印。全工程Lv4で名工の証(通り名タブ末尾)
+  const engraved = (id) => (g.soldByItem[id] || 0) >= ENGRAVE_THRESHOLD;
+  const allProcMastered = Object.keys(PROCESSES).every((p) => procLevel(g.procExp[p] || 0) >= 4);
   // 図鑑の総数: 花籠は発見するまで数に含めない(31→発見後32)。エンディングまで存在を伏せる
   const specTotal = Object.keys(SPECIMENS).length - (knownSpecs.has(HANAKAGO) ? 0 : 1);
   const curSets = activeSets(g.shelf, g.shelfSize);
@@ -2293,6 +2297,7 @@ export default function BoneAndGlass() {
                           style={{ border: `1px solid ${C.line}`, borderRadius: 5, padding: 8, opacity: found ? 1 : 0.45, cursor: found ? "pointer" : "default" }}>
                           <div style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 5 }}>
                             {found ? <SpecIcon id={id} fileImgs={fileImgs} size={28} emojiSize={13} /> : "▪"} <span>{found ? s.name : "?????"}</span>
+                            {found && engraved(id) && <span title="この店の看板になった品" style={{ fontSize: 11, color: C.brass, marginLeft: "auto" }}>{ENGRAVE_MARK}</span>}
                           </div>
                           <div style={{ fontSize: 10, color: C.dim, marginTop: 2 }}>
                             {found ? <>{CAT_NAME[s.cat]} · {s.nosale ? "非売" : `${s.price}G`}{s.tags.map((t) => <TagChip key={t} t={t} />)}</> : "未発見"}
@@ -2351,6 +2356,10 @@ export default function BoneAndGlass() {
                       <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>{BANSHO.desc}</div>
                     </div>
                   )}
+                  {/* 名工の証: 全工程Lv4に達したときだけ、通り名タブ末尾に一行(効果なし) */}
+                  {allProcMastered && (
+                    <div style={{ fontSize: 12, color: C.brass, lineHeight: 1.9, marginTop: 6, textAlign: "center" }}>{MASTER_LINE}</div>
+                  )}
                 </div>
               )}
             </div>
@@ -2389,7 +2398,12 @@ export default function BoneAndGlass() {
                 {SPEC_LORE[bookDetail] && (
                   <div style={{ fontSize: 13, color: C.ivory, lineHeight: 2, marginTop: 12, borderTop: `1px solid ${C.line}`, paddingTop: 10 }}>
                     {SPEC_LORE[bookDetail]}
+                    {engraved(bookDetail) && <span style={{ color: C.brass }}> {ENGRAVE_MARK}</span>}
                   </div>
+                )}
+                {/* 刻印: 説明文が無い品でも、看板になった品には控えめに一印 */}
+                {engraved(bookDetail) && !SPEC_LORE[bookDetail] && (
+                  <div style={{ fontSize: 13, color: C.brass, textAlign: "center", marginTop: 12 }}>{ENGRAVE_MARK}</div>
                 )}
               </div>
             </div>

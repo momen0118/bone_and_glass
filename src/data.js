@@ -172,6 +172,8 @@ export const MOON_BOOST = { umibe: ["kurage"], shitsugen: ["ga", "hikarigoke", "
 // 採集人の満月報告(2回目の満月の一晩目の朝・その朝に採集依頼を出していたら一度きり)
 // 洞窟・湿原の解禁と同じ「肖像つき・本人のセリフ」形式で朝画面冒頭に出す
 export const MOON_REPORT = "採集人「浜の連中に聞いたんですがね、満月の晩の後は、海月が打ち上がるらしいですよ。……ちょうど今夜じゃないですか」";
+// 蟹の救済(詰み防止・一度きり)の朝の地の文。倉庫に蟹の亡骸を1つ置く
+export const KANI_RESCUE = "店の前に、蟹の死骸が転がっていた。……こういう町だ。";
 
 // ---------- 処理法 ----------
 export const PROCESSES = {
@@ -234,7 +236,7 @@ RECIPES.forEach((r) => { if (SPECIMENS[r.from]) SECONDARY[r.from] = r.id; });
 // ---------- 採集地 ----------
 export const SITES = [
   { id: "mori",  name: "近くの森", cost: 40, desc: "鳥・虫・苔。手堅い採集地",
-    table: [ ["tori", 3], ["chou", 4], ["kabuto", 4], ["koke", 3] ] },
+    table: [ ["tori", 4], ["chou", 3], ["kabuto", 3], ["koke", 3] ] },
   { id: "umibe", name: "入り江", cost: 50, desc: "魚・貝・蟹。稀に海月",
     table: [ ["sakana", 4], ["kai", 4], ["kani", 3], ["kurage", 1] ] },
   { id: "doukutsu", name: "石灰洞窟", cost: 85, desc: "蝙蝠・蛇・鉱石。費用は嵩む",
@@ -434,6 +436,11 @@ export const OOYA = {
   raise150: "景気が良さそうじゃないか、ええ?",
   raise200: "立派な店になったもんだ。なら家賃も立派にしないとなあ?",
   broke: "おいおい、硝子より先に財布が空か? ツケといてやるが、覚えとけよ。",
+  // 初回家賃の前夜(6日目の夜)の閉店後カード。大家の初登場・予告(一度きり・タップ送り2行)
+  preview: [
+    "よう、新入り。景気はどうだ? ——明日は家賃の日だ。300G、耳を揃えておけよ",
+    "なに、店を構えるってのはそういうことだ。……精々励め",
+  ],
   // 店の買い取りの専用演出(タップで順に読み進める。line=セリフ / narr=地の文)
   buyoutScene: [
     { t: "line", text: "……本気か。まあ、金は金だ。" },
@@ -583,7 +590,7 @@ export const PRICE_MODES = {
   discount: { name: "勉強", mult: 0.8, buy: 1.25, repBonus: 1, desc: "売価-20%・売れやすく評判も上がる" },
 };
 
-export const RENT = 200, RENT_INTERVAL = 7, MAX_AP = 3;
+export const RENT = 300, RENT_INTERVAL = 7, MAX_AP = 3;
 
 // OP(はじまりの朝)。新規開始時のみ。img=画像+地の文(月独白様式)/ narr=地の文のみ。
 // タップ送り・各枚フェード・スキップなし。最終枚のタップで1日目の朝へ。

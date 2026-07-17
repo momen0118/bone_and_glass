@@ -14,7 +14,7 @@ import {
   CUSTOMERS, COLLECTOR, OOYA, SHOP_BUYOUT, SETS, ALIASES, PRICE_MODES,
   GAKUSEI_KOUHAI_LINE, GAKUSEI_GRAD, SWAMP_UNLOCK, CAVE_UNLOCK, SPEC_LORE,
   WORM, isWorm, wormId, baseId, WORM_CATS, specOf, CAMPHOR, mushiDiscover, MUSHIYA,
-  moonPhase, MOON_OPEN, MOON_BOOST, MOON_REPORT, ANA_ALIAS,
+  moonPhase, MOON_OPEN, MOON_BOOST, MOON_REPORT, KANI_RESCUE, ANA_ALIAS,
   ORDER_UNLOCK_REP, ORDER_CHANCE, ORDER_REWARD_MULT, ORDER_EXPIRED_LOG, ORDER_DECLINE,
   ORDER_CLIENTS, ORDER_FILTER, ORDER_LETTERS, ORDER_SITE_GATE, ORDER_RARE,
   BUYOUT_CELEBRATE, SCENES, OOYA_ORDER,
@@ -98,11 +98,15 @@ function newGame() {
     // --- v7.2 ---
     moonReport: false,        // その朝に採集人の満月報告行を出すか(翌朝クリア)
     moonReportDone: false,    // 採集人の満月報告(2回目満月)の消化(一度きり)
+    // --- v7.3 ---
+    ooyaPreviewDone: false,   // 大家の初回家賃予告(6日目の夜)の消化(一度きり)
+    kaniRescue: false,        // その朝に蟹の救済イベント行を出すか(翌朝クリア)
+    kaniRescueDone: false,    // 蟹の救済(詰み防止)の消化(一度きり)
   };
 }
 const clampTrust = (t) => Math.max(-6, Math.min(6, t));
 // 家賃の段階化: 開店前(その日の朝時点)の評判で判定。大家は先週までの噂を聞いて来る
-const rentFor = (rep) => (rep >= 40 ? 300 : rep >= 20 ? 250 : RENT);
+const rentFor = (rep) => (rep >= 40 ? 400 : rep >= 20 ? 350 : RENT);
 // v1セーブの取り込み
 function migrate(loaded) {
   const base = newGame();
@@ -166,6 +170,10 @@ function migrate(loaded) {
   // v7.2: 採集人の満月報告。2回目の満月(21日目)を過ぎている既存セーブでは消化済み
   g.moonReport = !!loaded.moonReport;
   g.moonReportDone = loaded.moonReportDone !== undefined ? !!loaded.moonReportDone : (loaded.day || 1) > 21;
+  // v7.3: 大家の初回家賃予告(6日目の夜)。7日目以降の既存セーブは消化済み扱い。蟹の救済フラグ。
+  g.ooyaPreviewDone = loaded.ooyaPreviewDone !== undefined ? !!loaded.ooyaPreviewDone : (loaded.day || 1) > 6;
+  g.kaniRescue = !!loaded.kaniRescue;
+  g.kaniRescueDone = !!loaded.kaniRescueDone;
   // 買い取り済みの旧セーブ: 翌日を「買い取り当日」とみなしてイベント列を開始する
   g.buyoutDay = typeof loaded.buyoutDay === "number" ? loaded.buyoutDay
     : (g.ownShop && !g.kifujinRumorDone ? g.day + 1 : null);
@@ -181,6 +189,19 @@ function specComp(known) {
 // 即日は発生せず、コンプ達成の翌日(edFireDay)の夜の閉店後に発生。
 function endingReady(g) {
   return !g.endingDone && g.edFireDay != null && g.day >= g.edFireDay && specComp(g.known);
+}
+// 最安の採集費(蟹の救済の発火判定に使う)
+const CHEAPEST_GATHER = Math.min(...SITES.map((s) => s.cost));
+// 現在の手持ち(倉庫の素材・在庫標本・必要な資材・工程Lv)で実行できる仕立てが1つでもあるか
+function canCraftAny(g) {
+  return RECIPES.some((r) => {
+    const p = PROCESSES[r.proc];
+    const have = SPECIMENS[r.from] ? (g.spec[r.from] || 0) > 0 : (g.inv[r.from] || 0) > 0;
+    if (!have) return false;
+    if (procLevel((g.procExp && g.procExp[r.proc]) || 0) < (r.minLv || 1)) return false;
+    if (p.needs && (g.inv[p.needs] || 0) <= 0) return false;
+    return true;
+  });
 }
 // 特注の手紙を1通生成(条件を満たさなければ null)。基準価=basePrice(g, id)
 function rollOrderLetter(g) {
@@ -586,7 +607,7 @@ function simulateNight(g) {
     // 家賃回収は客と同じカードに昇格。line=大家のセリフ / narr=セリフなしの地の文 / payLabel=支払額 / text=まとめ時の一行
     let line = null, narr = null, payLabel, text;
     if (rent > (g.lastRent != null ? g.lastRent : RENT)) {
-      line = rent >= 300 ? OOYA.raise200 : OOYA.raise150;
+      line = rent >= 400 ? OOYA.raise200 : OOYA.raise150;
       payLabel = `家賃 ${rent}G`;
       text = `大家「${line}」— 家賃は ${rent}G になった。`;
     } else if (cash < rent) {
@@ -603,6 +624,12 @@ function simulateNight(g) {
       text = `大家が来た。家賃 ${rent}G を支払った。`;
     }
     rentLog = { t: "rent", cid: "ooya", line, narr, payLabel, text };
+  }
+  // 初回家賃の前夜(6日目の夜)の閉店後、大家が初登場して予告する(一度きり・閉店後タグ・タップ送り2行)
+  let ooyaPreview = false;
+  if (rentLog == null && !g.ownShop && g.day === RENT_INTERVAL - 1 && !g.ooyaPreviewDone) {
+    ooyaPreview = true;
+    rentLog = { t: "rent", cid: "ooya", tap: true, line: OOYA.preview[0], line2: OOYA.preview[1], text: `大家「${OOYA.preview[0]}」` };
   }
 
   // 見習いの日当
@@ -627,7 +654,7 @@ function simulateNight(g) {
   return { log, gold, rep, sold, rentLog, rentPaid, wageText, shelf, spec, soldByCat, custBought, offer,
     gakuseiGraduated: graduated, swampUnlocked,
     camphor, mushiFirstDone, mushiFirstNight, mushiMorning, mushiSold, anaAlias,
-    celebrated, kifujinRumor, openingTonight, nineBuy };
+    celebrated, kifujinRumor, openingTonight, nineBuy, ooyaPreview };
 }
 
 // ---------- 画像 ----------
@@ -1044,6 +1071,7 @@ export default function BoneAndGlass() {
       kifujinRumorDone: g.kifujinRumorDone || res.kifujinRumor,
       openingNightDone: g.openingNightDone || res.openingTonight,
       nineBuyDone: g.nineBuyDone || res.nineBuy,
+      ooyaPreviewDone: g.ooyaPreviewDone || res.ooyaPreview,
     });
     setNightView({ idx: 0, sub: 1, collapsed: false });
     // 貴婦人の噂: 開店直後、全面のタップ送り演出を挟む(演出後は通常の営業カードへ)
@@ -1117,6 +1145,12 @@ export default function BoneAndGlass() {
     // エンディング: 図鑑コンプ達成後、翌日の夜を発生日として一度だけ確定(以後は減らない)
     let edFireDay = src.edFireDay;
     if (edFireDay == null && !src.endingDone && specComp(src.known)) edFireDay = day + 1;
+    // 蟹の救済(詰み防止・一度きり): 朝の開始時点で金欠かつ仕立て可能な組み合わせが皆無なら倉庫に蟹の亡骸を1つ置く
+    let kaniRescue = false, rescueInv = src.inv;
+    if (!src.kaniRescueDone && src.gold < CHEAPEST_GATHER && !canCraftAny(src)) {
+      kaniRescue = true;
+      rescueInv = { ...src.inv, kani: (src.inv.kani || 0) + 1 };
+    }
     const ng = {
       ...src, day, phase: "morning", ap: MAX_AP + (src.apprentice ? 1 : 0),
       nightLog: [], nightRent: null, craftLog: [], offer: null, offerResult: null,
@@ -1127,6 +1161,7 @@ export default function BoneAndGlass() {
       apprenticeMorning, apprenticeSeen: src.apprenticeSeen || apprenticeMorning,
       banshoMorning, banshoAlias: src.banshoAlias || banshoMorning,
       moonReport: false, // 満月報告は当日の朝のみ。翌朝クリア(消化フラグ moonReportDone は保持)
+      inv: rescueInv, kaniRescue, kaniRescueDone: src.kaniRescueDone || kaniRescue,
     };
     // 大家の依頼: 4品すべて倉庫に揃った朝は自動で開く。揃っていなければ畳む。
     setOoyaCardOpen(ooyaOrderReady(ng));
@@ -1526,6 +1561,12 @@ export default function BoneAndGlass() {
               <div style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12, color: C.brass, lineHeight: 1.8, borderLeft: `2px solid ${C.brass}`, paddingLeft: 8 }}>
                 <Portrait cid="saisyuunin" imgs={imgs} fileImgs={fileImgs} size={30} />
                 <span>{MOON_REPORT}</span>
+              </div>
+            )}
+            {g.kaniRescue && (
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13, lineHeight: 1.9, color: C.ivory, borderLeft: `2px solid ${C.brass}`, paddingLeft: 8 }}>
+                <span style={{ fontSize: 16 }}>🦀</span>
+                <span>{KANI_RESCUE}</span>
               </div>
             )}
             {g.orderExpired && (
@@ -2144,7 +2185,7 @@ export default function BoneAndGlass() {
                 )}
                 {DECOR.map((d) => (
                   <div key={d.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", opacity: g.decor[d.id] ? 0.55 : 1 }}>
-                    <div style={{ fontSize: 13 }}>{d.icon} {d.name}<div style={{ fontSize: 11, color: C.dim }}>{d.desc}</div></div>
+                    <div style={{ fontSize: 13 }}>{d.name}<div style={{ fontSize: 11, color: C.dim }}>{d.desc}</div></div>
                     {g.decor[d.id] ? <span style={{ fontSize: 12, color: C.glass }}>設置済</span> : <Btn onClick={() => buyDecor(d)} disabled={g.gold < d.cost}>{d.cost}G</Btn>}
                   </div>
                 ))}

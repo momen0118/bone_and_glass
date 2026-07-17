@@ -269,7 +269,7 @@ export const SITES = [
     table: [ ["sakana", 4], ["kai", 4], ["kani", 3], ["kurage", 1] ] },
   { id: "doukutsu", name: "石灰洞窟", cost: 85, desc: "蝙蝠・蛇・鉱石。費用は嵩む",
     table: [ ["koumori", 2], ["hebi", 3], ["suisho", 3], ["ammo", 2] ] },
-  { id: "shitsugen", name: "霧の湿原", cost: 150, desc: "蛙・蜥蜴・蛾、稀に梟。遠出になる",
+  { id: "shitsugen", name: "霧の湿原", cost: 150, desc: "蛙・蜥蜴・蛾。稀に苔と梟。遠出になる",
     table: [ ["kaeru", 3], ["tokage", 3], ["ga", 3], ["hikarigoke", 2], ["fukurou", 1] ] },
   { id: "haikou", name: "廃坑", cost: 220, desc: "蝙蝠・鼠・鉱石。石の出る坑道",
     table: [ ["koumori", 3], ["nezumi", 3], ["murasaki", 2], ["ougon", 2], ["shoudou", 1] ] },

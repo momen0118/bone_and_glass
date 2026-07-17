@@ -23,6 +23,7 @@ import {
   HANAKAGO, BANSHO, OPENING_NIGHT, NINE_BUY,
   RENT, RENT_INTERVAL, MAX_AP,
   OUTBREAK_CHANCE, OUTBREAK_MULT, outbreakLine,
+  ORDER_BIG_CHANCE, ORDER_BIG_TERM, ORDER_BIG_ITEMS,
 } from "./data.js";
 import { storage } from "./storage.js";
 import { loadFileImages, FILE_ZOOM, specTrim, portraitFrame, portraitVignette } from "./images.js";
@@ -274,7 +275,8 @@ function canCraftAny(g) {
   });
 }
 // 特注の手紙を1通生成(条件を満たさなければ null)。基準価=basePrice(g, id)
-function rollOrderLetter(g) {
+// (exportは検証スクリプト用。ゲーム内の挙動は不変)
+export function rollOrderLetter(g) {
   // 依頼人抽選(解禁済みの客層のみ)
   const clientPool = ORDER_CLIENTS.filter((c) => {
     if (c.flag && !g[c.flag]) return false;
@@ -286,17 +288,23 @@ function rollOrderLetter(g) {
   // 発見済みレシピの品(=作れると分かっている標本)
   const knownSpecs = [...new Set(RECIPES.filter((r) => g.known.includes(r.id)).map((r) => r.to))];
   const filt = ORDER_FILTER[client];
-  // 発見済み × 依頼人フィルタ × 採集地が解禁済み(未解禁の原材料の品は除外)
-  const pool = knownSpecs.filter((id) => SPECIMENS[id] && filt(SPECIMENS[id], basePrice(g, id))
-    && !(ORDER_SITE_GATE[id] && !g[ORDER_SITE_GATE[id]]));
+  // v8.3: クリア後は 1/3 で大口依頼。数量2〜5・対象に高額品(全身骨格級・晶洞)を追加・納期+2日。
+  const big = g.endingDone && Math.random() < ORDER_BIG_CHANCE;
+  // 発見済み × 採集地が解禁済み(未解禁の原材料の品は除外)。
+  // 通常は依頼人フィルタで絞る。大口はそれに加えて高額品も候補入りする(依頼人フィルタ不問)。
+  const pool = knownSpecs.filter((id) => SPECIMENS[id]
+    && !(ORDER_SITE_GATE[id] && !g[ORDER_SITE_GATE[id]])
+    && (filt(SPECIMENS[id], basePrice(g, id)) || (big && ORDER_BIG_ITEMS.includes(id))));
   if (!pool.length) return null;
   const specId = pick(pool);
   const price = basePrice(g, specId);
-  // 数量(基準価帯)。<150=2〜3 / 150〜250=1〜2 / 250超=1
-  const qty = price < 150 ? 2 + rnd(2) : price <= 250 ? 1 + rnd(2) : 1;
+  // 数量。大口=2〜5 / 通常は基準価帯(<150=2〜3 / 150〜250=1〜2 / 250超=1)
+  const qty = big ? 2 + rnd(4) : price < 150 ? 2 + rnd(2) : price <= 250 ? 1 + rnd(2) : 1;
   // レア素材由来は長期・大口依頼(納期加算・報酬倍率の上書き)。それ以外は通常
   const rare = ORDER_RARE[specId];
-  const term = 3 + (qty - 1) + (rare ? rare.term : 0); // 納期(受領日を含まず翌日から起算)
+  // 納期(受領日を含まず翌日から起算)。大口はさらに +2日
+  const term = 3 + (qty - 1) + (rare ? rare.term : 0) + (big ? ORDER_BIG_TERM : 0);
+  // 報酬倍率は 1.4 のまま(大口でも金額は盛らない)。レア素材由来のみ既存の上書きを維持
   const reward = round5(price * qty * (rare ? rare.mult : ORDER_REWARD_MULT));
   const li = rnd(ORDER_LETTERS[client].length);
   return { client, specId, qty, term, reward, li };

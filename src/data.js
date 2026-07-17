@@ -365,6 +365,12 @@ export const CAVE_UNLOCK = {
 export const ORDER_UNLOCK_REP = 15;   // 解禁評判
 export const ORDER_CHANCE = 1 / 3;    // 依頼を受けていない朝に手紙が届く確率
 export const ORDER_REWARD_MULT = 1.4; // 報酬倍率(基準価×数量×これ)
+// v8.3: 特注の大口(クリア後スケール)。通常枠・同時1件の制限内で、大口になる確率。
+// 数量2〜5・対象に高額品を追加・納期+2日・報酬倍率は1.4のまま(金額で盛らない)。
+export const ORDER_BIG_CHANCE = 1 / 3; // クリア後、依頼が大口になる確率
+export const ORDER_BIG_TERM = 2;       // 大口の納期加算(通常式に +2日)
+// 大口で対象に加わる高額品(全身骨格級・晶洞)。通常の依頼人フィルタに関わらず候補入りする
+export const ORDER_BIG_ITEMS = ["s_zenshin", "s_fukurouzen", "s_nezuzen", "s_shoudou"];
 export const ORDER_EXPIRED_LOG = "約束の品は、届かなかった。";
 // 通常依頼の破棄「断りの手紙を出す」(独白形式・数値非表示。評判-2固定・常連度不変)
 export const ORDER_DECLINE = {

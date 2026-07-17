@@ -19,7 +19,7 @@ import {
   ORDER_CLIENTS, ORDER_FILTER, ORDER_LETTERS, ORDER_SITE_GATE, ORDER_RARE,
   BUYOUT_CELEBRATE, SCENES, OOYA_ORDER,
   APPRENTICE_INTRO, APPRENTICE_HIRE_FIRST, MONTH_REMARKS, RUMORS, RUMOR_CHANCE, OP,
-  GOSSIP, GOSSIP_CHANCE, GOSSIP_SPEAKERS,
+  GOSSIP, GOSSIP_CHANCE, GOSSIP_SPEAKERS, GOSSIP_CUST_MIN,
   HANAKAGO, BANSHO, OPENING_NIGHT, NINE_BUY,
   RENT, RENT_INTERVAL, MAX_AP,
 } from "./data.js";
@@ -408,7 +408,8 @@ export function simulateNight(g) {
     for (const [k, v] of Object.entries(soldByCat)) { total += v; if (v > bestN) { best = k; bestN = v; } }
     return total > 0 && bestN >= total * 0.6 && g.aliasHistory.includes(best) ? best : null;
   };
-  // #6: 客層別販売の最多客層が明確(4割以上・同数の並びなし)。若い研究者は学生に合算
+  // #6: 客層別販売の最多客層が明確(4割以上・同数の並びなし)。若い研究者は学生に合算。
+  // 通算がごく少ないうちは「最多」が立たない(合計15件の下限)
   const gossipTopCust = () => {
     const t = {};
     for (const [k, v] of Object.entries(soldByCust)) { const key = k === "wakate" ? "gakusei" : k; t[key] = (t[key] || 0) + v; }
@@ -418,6 +419,7 @@ export function simulateNight(g) {
       if (v > bestN) { best = k; bestN = v; tie = false; }
       else if (v === bestN && v > 0) tie = true;
     }
+    if (total < GOSSIP_CUST_MIN) return null;
     return best && !tie && bestN >= total * 0.4 && GOSSIP_SPEAKERS.includes(best) ? best : null;
   };
   // 話者固定うわさの成立条件(条件を満たしている間だけ抽選対象)

@@ -9,7 +9,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   SAVE_KEY, IMG_KEY, C,
   MATERIALS, MAT_ORDER, CAT_NAME, TAG_NAME, SPECIMENS,
-  PROCESSES, procLevel, RECIPES, SPEC_PROC, SECONDARY,
+  PROCESSES, procLevel, PROC_LV_EXP, PROC_LV_EXP_LEGACY, RECIPES, SPEC_PROC, SECONDARY,
   SITES, SUPPLY_SHOP, SHELF_EXPAND, DECOR,
   CUSTOMERS, COLLECTOR, OOYA, SHOP_BUYOUT, SETS, ALIASES, PRICE_MODES,
   GAKUSEI_KOUHAI_LINE, GAKUSEI_GRAD, SWAMP_UNLOCK, CAVE_UNLOCK, SPEC_LORE, LEDGER_LOST, LEDGER_TITLES,
@@ -54,6 +54,7 @@ function newGame() {
     totalEarn: 0, totalSold: 0,
     craftLog: [],
     procExp: { boil: 0, dry: 0, preserve: 0, frame: 0, polish: 0, assemble: 0 },
+    procExpV2: true, // 熟練EXPが新カーブ[6,15,25]前提であることの印(旧セーブのLv保護に使う)
     decor: { lamp: false, velvet: false, window: false },
     soldByCat: { bone: 0, insect: 0, wet: 0, mineral: 0, craft: 0 },
     custBought: {},
@@ -134,6 +135,18 @@ export function migrate(loaded) {
     g.shelf = [...(g.shelf || []), ...Array(9).fill(null)].slice(0, 9);
   g.shelfSize = loaded.shelfSize || 6;
   g.procExp = { ...base.procExp, ...(loaded.procExp || {}) };
+  // v8.2: 熟練EXPの繰り上げ([4,12,25]→[6,15,25])。旧カーブのセーブ(procExpV2なし)は、
+  // 新カーブで既到達Lvが下がらないよう、そのLvを保つのに必要な最小EXPまで底上げする。
+  // 新カーブ済みのセーブ(印あり)は触らない(新規プレイの正当なLv1が再ロードで上がるのを防ぐ)。
+  if (!loaded.procExpV2) {
+    const legacyLevel = (exp) => PROC_LV_EXP_LEGACY.reduce((lv, th) => (exp >= th ? lv + 1 : lv), 1);
+    Object.keys(g.procExp).forEach((k) => {
+      const oldLv = legacyLevel(g.procExp[k] || 0);
+      const need = oldLv >= 2 ? PROC_LV_EXP[oldLv - 2] : 0; // そのLvを新カーブで保つ最小EXP
+      if ((g.procExp[k] || 0) < need) g.procExp[k] = need;
+    });
+  }
+  g.procExpV2 = true;
   g.decor = { ...base.decor, ...(loaded.decor || {}) };
   g.soldByCat = { ...base.soldByCat, ...(loaded.soldByCat || {}) };
   g.custBought = { ...(loaded.custBought || {}) };

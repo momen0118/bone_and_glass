@@ -48,8 +48,9 @@ export const portraitVignette = (cid) => PORTRAIT_VIGNETTE[cid] || { scale: 1.6,
 
 // 標本画像の外周トリム倍率: 生成画像の白フチ・右下の署名を表示時に切り落とす(元ファイルは加工しない)
 export const SPEC_TRIM = 1.15;
-// 個体差が出た標本用の上書き倍率(標本ID → 倍率)。初期は空
-export const SPEC_TRIM_BY_ID = {};
+// 個体差が出た標本用の上書き倍率(標本ID → 倍率)
+// s_hanakago は図譜の頁として下部の銘(VENVS FLOWER BASKET SPONGE)まで文字ごと見せるため縮小トリム
+export const SPEC_TRIM_BY_ID = { s_hanakago: 0.98 };
 export const specTrim = (id) => SPEC_TRIM_BY_ID[id] || SPEC_TRIM;
 
 const FILES = import.meta.glob("/img/**/*.{png,jpg}", { eager: true, query: "?url", import: "default" });

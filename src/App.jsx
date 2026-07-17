@@ -14,7 +14,7 @@ import {
   CUSTOMERS, COLLECTOR, OOYA, SHOP_BUYOUT, SETS, ALIASES, PRICE_MODES,
   GAKUSEI_KOUHAI_LINE, GAKUSEI_GRAD, SWAMP_UNLOCK, CAVE_UNLOCK, SPEC_LORE,
   WORM, isWorm, wormId, baseId, WORM_CATS, specOf, CAMPHOR, mushiDiscover, MUSHIYA,
-  moonPhase, MOON_OPEN, MOON_BOOST, ANA_ALIAS,
+  moonPhase, MOON_OPEN, MOON_BOOST, MOON_REPORT, ANA_ALIAS,
   ORDER_UNLOCK_REP, ORDER_CHANCE, ORDER_REWARD_MULT, ORDER_EXPIRED_LOG, ORDER_DECLINE,
   ORDER_CLIENTS, ORDER_FILTER, ORDER_LETTERS, ORDER_SITE_GATE, ORDER_RARE,
   BUYOUT_CELEBRATE, SCENES, OOYA_ORDER,
@@ -95,11 +95,14 @@ function newGame() {
     // --- v7.1 ---
     openingNightDone: false,  // 開店の夜(1日目の学生イベント)の消化
     nineBuyDone: false,       // 好事家の九枠買い(隠しイベント)の消化
+    // --- v7.2 ---
+    moonReport: false,        // その朝に採集人の満月報告行を出すか(翌朝クリア)
+    moonReportDone: false,    // 採集人の満月報告(2回目満月)の消化(一度きり)
   };
 }
 const clampTrust = (t) => Math.max(-6, Math.min(6, t));
 // 家賃の段階化: 開店前(その日の朝時点)の評判で判定。大家は先週までの噂を聞いて来る
-const rentFor = (rep) => (rep >= 40 ? 200 : rep >= 20 ? 150 : RENT);
+const rentFor = (rep) => (rep >= 40 ? 300 : rep >= 20 ? 250 : RENT);
 // v1セーブの取り込み
 function migrate(loaded) {
   const base = newGame();
@@ -160,6 +163,9 @@ function migrate(loaded) {
   // v7.1: 開店の夜は1日目を過ぎている既存セーブでは消化済み(発生させない)
   g.openingNightDone = loaded.openingNightDone !== undefined ? !!loaded.openingNightDone : (loaded.day || 1) > 1;
   g.nineBuyDone = !!loaded.nineBuyDone;
+  // v7.2: 採集人の満月報告。2回目の満月(21日目)を過ぎている既存セーブでは消化済み
+  g.moonReport = !!loaded.moonReport;
+  g.moonReportDone = loaded.moonReportDone !== undefined ? !!loaded.moonReportDone : (loaded.day || 1) > 21;
   // 買い取り済みの旧セーブ: 翌日を「買い取り当日」とみなしてイベント列を開始する
   g.buyoutDay = typeof loaded.buyoutDay === "number" ? loaded.buyoutDay
     : (g.ownShop && !g.kifujinRumorDone ? g.day + 1 : null);
@@ -580,7 +586,7 @@ function simulateNight(g) {
     // 家賃回収は客と同じカードに昇格。line=大家のセリフ / narr=セリフなしの地の文 / payLabel=支払額 / text=まとめ時の一行
     let line = null, narr = null, payLabel, text;
     if (rent > (g.lastRent != null ? g.lastRent : RENT)) {
-      line = rent >= 200 ? OOYA.raise200 : OOYA.raise150;
+      line = rent >= 300 ? OOYA.raise200 : OOYA.raise150;
       payLabel = `家賃 ${rent}G`;
       text = `大家「${line}」— 家賃は ${rent}G になった。`;
     } else if (cash < rent) {
@@ -601,7 +607,7 @@ function simulateNight(g) {
 
   // 見習いの日当
   let wageText = null;
-  if (g.apprentice) { gold -= 50; wageText = "見習いに日当 50G を払った。"; }
+  if (g.apprentice) { gold -= 70; wageText = "見習いに日当 70G を払った。"; }
 
   // 蒐集家の来訪判定(trustが負のときのみ出現率が減衰。正でも上げない)。
   // エンディングの夜は通常の蒐集家来訪をスキップ(万象の夜の演出が単独で出る)
@@ -897,8 +903,11 @@ export default function BoneAndGlass() {
     if (site.id === "mori" || site.id === "umibe") gatherCount += 1;
     const justUnlocked = !caveUnlocked && gatherCount >= CAVE_UNLOCK.threshold;
     if (justUnlocked) { caveUnlocked = true; setCaveEvent(CAVE_UNLOCK.text); }
-    setG({ ...g, gold: g.gold - site.cost, inv, siteCount, gatherCount, caveUnlocked });
-    flash(justUnlocked ? CAVE_UNLOCK.text : "入手: " + Object.entries(got).map(([k, v]) => `${itemIcon(k)}${itemName(k)}×${v}`).join("、"));
+    // 採集人の満月報告: 2回目の満月(相4)の一晩目の朝(奇数日=満月の対のうち先の日)に採集依頼を出したら一度きり
+    const fireMoonReport = !g.moonReportDone && moonPhase(g.day) === 4 && g.day % 2 === 1 && Math.floor((g.day - 1) / 14) === 1;
+    setG({ ...g, gold: g.gold - site.cost, inv, siteCount, gatherCount, caveUnlocked,
+      moonReport: g.moonReport || fireMoonReport, moonReportDone: g.moonReportDone || fireMoonReport });
+    flash(justUnlocked ? CAVE_UNLOCK.text : "入手: " + Object.entries(got).map(([k, v]) => `${itemIcon(k)}${itemName(k)} ${v}`).join("、"));
   };
   const buySupply = (s, qty = 1) => {
     const total = s.cost * qty;
@@ -1117,6 +1126,7 @@ export default function BoneAndGlass() {
       order, rep, letter, orderExpired, custBought, edFireDay,
       apprenticeMorning, apprenticeSeen: src.apprenticeSeen || apprenticeMorning,
       banshoMorning, banshoAlias: src.banshoAlias || banshoMorning,
+      moonReport: false, // 満月報告は当日の朝のみ。翌朝クリア(消化フラグ moonReportDone は保持)
     };
     // 大家の依頼: 4品すべて倉庫に揃った朝は自動で開く。揃っていなければ畳む。
     setOoyaCardOpen(ooyaOrderReady(ng));
@@ -1506,6 +1516,18 @@ export default function BoneAndGlass() {
                 <span>{mushiDiscover(g.mushiMorning)}</span>
               </div>
             )}
+            {caveEvent && (
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12, color: C.brass, lineHeight: 1.8, borderLeft: `2px solid ${C.brass}`, paddingLeft: 8 }}>
+                <Portrait cid="saisyuunin" imgs={imgs} fileImgs={fileImgs} size={30} />
+                <span>{caveEvent}</span>
+              </div>
+            )}
+            {g.moonReport && (
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12, color: C.brass, lineHeight: 1.8, borderLeft: `2px solid ${C.brass}`, paddingLeft: 8 }}>
+                <Portrait cid="saisyuunin" imgs={imgs} fileImgs={fileImgs} size={30} />
+                <span>{MOON_REPORT}</span>
+              </div>
+            )}
             {g.orderExpired && (
               <div style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13, lineHeight: 1.8, color: C.red, borderLeft: `2px solid ${C.red}`, paddingLeft: 8 }}>
                 <span style={{ fontSize: 15 }}>✉</span>
@@ -1524,7 +1546,7 @@ export default function BoneAndGlass() {
                 )}
               </div>
               <div style={{ fontSize: 13, lineHeight: 1.9 }}>
-                {invEntries.length ? invEntries.map(([k, v]) => <span key={k} style={{ marginRight: 10, whiteSpace: "nowrap" }}><MatIcon id={k} fileImgs={fileImgs} emojiSize={13} />{itemName(k)}×{v}</span>) : <span style={{ color: C.dim }}>空っぽだ</span>}
+                {invEntries.length ? invEntries.map(([k, v]) => <span key={k} style={{ marginRight: 10, whiteSpace: "nowrap" }}><MatIcon id={k} fileImgs={fileImgs} emojiSize={13} />{itemName(k)} <span style={{ opacity: 0.6 }}>{v}</span></span>) : <span style={{ color: C.dim }}>空っぽだ</span>}
               </div>
             </div>
             {/* 特注: 未受領の手紙(倉庫の下) */}
@@ -1611,12 +1633,6 @@ export default function BoneAndGlass() {
               );
             })()}
             <div style={{ fontSize: 12, color: C.dim, lineHeight: 1.8 }}>夜のうちに届いた依頼票に目を通す。今日はどこへ人をやろうか。</div>
-            {caveEvent && (
-              <div style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12, color: C.brass, lineHeight: 1.8, borderLeft: `2px solid ${C.brass}`, paddingLeft: 8 }}>
-                <Portrait cid="saisyuunin" imgs={imgs} fileImgs={fileImgs} size={30} />
-                <span>{caveEvent}</span>
-              </div>
-            )}
             {SITES.filter((s) =>
               s.id === "shitsugen" ? g.swampUnlocked : s.id === "doukutsu" ? g.caveUnlocked
               : s.id === "haikou" ? g.haikouUnlocked : true
@@ -1673,7 +1689,7 @@ export default function BoneAndGlass() {
             {g.rep >= 20 && (
               <div style={{ borderTop: `1px solid ${C.line}`, paddingTop: 12, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
                 <div>
-                  <div style={{ fontSize: 15 }}>見習い <span style={{ fontSize: 11, color: C.dim }}>日当50G</span></div>
+                  <div style={{ fontSize: 15 }}>見習い <span style={{ fontSize: 11, color: C.dim }}>日当70G</span></div>
                   <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>
                     {g.apprentice ? "見習いは朝から工房にいる(作業+1)" : "雇えば朝から工房に立つ(作業+1)"}
                   </div>
@@ -1704,7 +1720,7 @@ export default function BoneAndGlass() {
                         background: sel === k ? C.brass : C.panelHi, color: sel === k ? "#1a140c" : C.ivory,
                         border: `1px solid ${sel === k ? C.brass : C.line}`,
                         whiteSpace: "nowrap", flexShrink: 0,
-                      }}>{MATERIALS[k] ? <MatIcon id={k} fileImgs={fileImgs} emojiSize={13} /> : itemIcon(k)} {itemName(k)} ×{v}{mk && <span style={{ color: sel === k ? "#1a140c" : C.glass, marginLeft: 4 }}>{mk}</span>}</button>
+                      }}>{MATERIALS[k] ? <MatIcon id={k} fileImgs={fileImgs} emojiSize={13} /> : itemIcon(k)} {itemName(k)} <span style={{ opacity: 0.6 }}>{v}</span>{mk && <span style={{ color: sel === k ? "#1a140c" : C.glass, marginLeft: 4 }}>{mk}</span>}</button>
                   );
                 })}
                 {!invEntries.filter(([k]) => !MATERIALS[k].supply).length && !specEntries.filter(([k]) => craftables(k).length).length &&
@@ -1868,7 +1884,7 @@ export default function BoneAndGlass() {
                     const mk = nextMark(k);
                     return (
                       <Btn key={k} onClick={() => placeOnShelf(shelfPickFor, k)} style={{ fontSize: 12 }}>
-                        <SpecIcon id={k} fileImgs={fileImgs} size={18} emojiSize={13} /> {specOf(k).name} ×{v}
+                        <SpecIcon id={k} fileImgs={fileImgs} size={18} emojiSize={13} /> {specOf(k).name} <span style={{ opacity: 0.6 }}>{v}</span>
                         {orderNeeds.has(k) && <span style={{ marginLeft: 4 }}>✉</span>}
                         {!isWorm(k) && SPECIMENS[k].tags.map((t) => <TagChip key={t} t={t} />)}
                         {mk && <span style={{ color: C.glass, marginLeft: 4 }}>{mk}</span>}

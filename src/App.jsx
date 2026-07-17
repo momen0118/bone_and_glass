@@ -722,10 +722,12 @@ export function simulateNight(g) {
       rep += 1 + (sp.tags.includes("rare") ? 1 : 0) + mode.repBonus;
       custBought.gakusei = 0; // 後輩に代替わり(この購入は数に残さない)
       log.push({
-        t: "sale", cid: "gakusei", big: true, grad: true,
-        open: GAKUSEI_GRAD.open, line: GAKUSEI_GRAD.line, line2: GAKUSEI_GRAD.line2, sub: GAKUSEI_GRAD.sub,
+        // 話者・肖像は若い研究者(wakate)。三行タップ送り(line3付き)→ ト書き(sub)→ 購入カード。
+        // 会計は従来どおり学生扱い(soldByCust.gakusei・custBought.gakusei=0)で変更なし。
+        t: "sale", cid: "wakate", big: true, grad: true,
+        line: GAKUSEI_GRAD.line, line2: GAKUSEI_GRAD.line2, line3: GAKUSEI_GRAD.line3, sub: GAKUSEI_GRAD.sub,
         itemId: target.id, price,
-        text: `学生「${GAKUSEI_GRAD.open}」「${GAKUSEI_GRAD.line}」「${GAKUSEI_GRAD.line2}」— ${sp.icon} ${sp.name}を ${price}G で購入。`,
+        text: `若い研究者「${GAKUSEI_GRAD.line}」「${GAKUSEI_GRAD.line2}」「${GAKUSEI_GRAD.line3}」— ${sp.icon} ${sp.name}を ${price}G で購入。`,
       });
     }
   }
@@ -1691,10 +1693,13 @@ export default function BoneAndGlass() {
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 15, letterSpacing: "0.1em", marginBottom: 6 }}>{custName}</div>
             {tap ? (
-              <div style={{ fontSize: 13, lineHeight: 1.9, color: C.ivory }}>{withPeriod(tapLine)}</div>
+              <>
+                <div style={{ fontSize: 13, lineHeight: 1.9, color: C.ivory }}>{withPeriod(tapLine)}</div>
+                {/* ト書き(sub)は最終行まで送ったあと、購入カードへの繋ぎで見せる */}
+                {l.sub && revealSub >= lineArr.length && <div style={{ fontSize: 12, lineHeight: 1.8, color: C.dim, marginTop: 8 }}>{l.sub}</div>}
+              </>
             ) : (
               <>
-                {l.open && <div style={{ fontSize: 13, lineHeight: 1.9, color: C.ivory, marginBottom: 6 }}>{withPeriod(l.open)}</div>}
                 <div style={{ fontSize: 13, lineHeight: 1.9, color: l.line ? C.ivory : C.dim }}>
                   {l.line ? withPeriod(l.line) : (l.narr || l.text)}
                 </div>

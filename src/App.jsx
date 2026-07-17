@@ -91,7 +91,7 @@ function newGame() {
     hanakagoState: "none",    // 硝子の花籠: none(未入手)/ material(素材所持)/ done(完成)
     banshoAlias: false,       // 通り名「万象堂」の獲得
     banshoMorning: false,     // その朝に万象堂の冒頭ログを出すか(翌朝クリア)
-    edFireDay: null,          // 図鑑コンプ後、この日の夜の閉店後に万象の夜が発生(3〜5日後)
+    edFireDay: null,          // 図鑑コンプ後、この日の夜の閉店後に万象の夜が発生(コンプ翌日)
     // --- v7.1 ---
     openingNightDone: false,  // 開店の夜(1日目の学生イベント)の消化
     nineBuyDone: false,       // 好事家の九枠買い(隠しイベント)の消化
@@ -172,7 +172,7 @@ function specComp(known) {
   return found >= goal;
 }
 // エンディング条件: 図鑑31種コンプ(評判は不問・trust出現率も不問)。
-// 即日は発生せず、コンプ達成から3〜5日後(edFireDay)の夜の閉店後に発生。
+// 即日は発生せず、コンプ達成の翌日(edFireDay)の夜の閉店後に発生。
 function endingReady(g) {
   return !g.endingDone && g.edFireDay != null && g.day >= g.edFireDay && specComp(g.known);
 }
@@ -1105,9 +1105,9 @@ export default function BoneAndGlass() {
     const apprenticeMorning = !src.apprenticeSeen && rep >= 20;
     // 万象堂: 花籠完成の翌朝、通り名を得て冒頭ログを出す(一度きり)
     const banshoMorning = src.hanakagoState === "done" && !src.banshoAlias;
-    // エンディング: 図鑑コンプ達成後、3〜5日後の夜を発生日として一度だけ確定(以後は減らない)
+    // エンディング: 図鑑コンプ達成後、翌日の夜を発生日として一度だけ確定(以後は減らない)
     let edFireDay = src.edFireDay;
-    if (edFireDay == null && !src.endingDone && specComp(src.known)) edFireDay = day + 2 + rnd(3);
+    if (edFireDay == null && !src.endingDone && specComp(src.known)) edFireDay = day + 1;
     const ng = {
       ...src, day, phase: "morning", ap: MAX_AP + (src.apprentice ? 1 : 0),
       nightLog: [], nightRent: null, craftLog: [], offer: null, offerResult: null,

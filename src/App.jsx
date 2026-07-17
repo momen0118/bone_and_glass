@@ -22,6 +22,11 @@ import {
   GOSSIP, GOSSIP_CHANCE, GOSSIP_SPEAKERS, GOSSIP_CUST_MIN,
   HANAKAGO, BANSHO, OPENING_NIGHT, NINE_BUY,
   RENT, RENT_INTERVAL, MAX_AP,
+  OUTBREAK_CHANCE, OUTBREAK_MULT, outbreakLine,
+  ORDER_BIG_CHANCE, ORDER_BIG_TERM, ORDER_BIG_ITEMS,
+  APPRENTICE_PROMOTE, APPRENTICE_DAYS_TOTAL, APPRENTICE_DAYS_POSTCLEAR,
+  APPRENTICE_WAGE, ARTISAN_WAGE, APPRENTICE_AP, ARTISAN_AP,
+  ENGRAVE_THRESHOLD, ENGRAVE_MARK, MASTER_LINE,
 } from "./data.js";
 import { storage } from "./storage.js";
 import { loadFileImages, FILE_ZOOM, specTrim, portraitFrame, portraitVignette } from "./images.js";
@@ -122,6 +127,12 @@ function newGame() {
     lastOrderMissDay: null,   // 直近のすっぽかし日
     orderDoneTotal: 0,        // 特注の達成の累計
     apprenticeOffStreak: 0,   // 見習いを連続で休ませている日数(解禁後・雇った日で0に戻る)
+    // --- v8.3: それからの店(クリア後の日常) ---
+    outbreak: null,           // その日の大発生 { site, mat }(クリア後・毎朝抽選・翌朝リセット)
+    apprenticeArtisan: false, // 見習い→職人への昇格を済ませたか
+    apprenticeDaysTotal: 0,   // 通算の雇用日数(雇っていた日を数える)
+    apprenticeDaysPostClear: 0, // クリア後の雇用日数
+    apprenticePromoteMorning: false, // その朝に昇格イベント行を出すか(翌朝クリア)
   };
 }
 const clampTrust = (t) => Math.max(-6, Math.min(6, t));
@@ -225,6 +236,12 @@ export function migrate(loaded) {
   g.lastOrderMissDay = typeof loaded.lastOrderMissDay === "number" ? loaded.lastOrderMissDay : null;
   g.orderDoneTotal = loaded.orderDoneTotal || 0;
   g.apprenticeOffStreak = loaded.apprenticeOffStreak || 0;
+  // v8.3: 大発生は保存しない(毎朝抽選)。見習いの昇格・雇用日数は記録済み分から(遡らない)。
+  g.outbreak = loaded.outbreak || null;
+  g.apprenticeArtisan = !!loaded.apprenticeArtisan;
+  g.apprenticeDaysTotal = loaded.apprenticeDaysTotal || 0;
+  g.apprenticeDaysPostClear = loaded.apprenticeDaysPostClear || 0;
+  g.apprenticePromoteMorning = !!loaded.apprenticePromoteMorning;
   // 買い取り済みの旧セーブ: 翌日を「買い取り当日」とみなしてイベント列を開始する
   g.buyoutDay = typeof loaded.buyoutDay === "number" ? loaded.buyoutDay
     : (g.ownShop && !g.kifujinRumorDone ? g.day + 1 : null);
@@ -243,6 +260,38 @@ function endingReady(g) {
 }
 // 最安の採集費(蟹の救済の発火判定に使う)
 const CHEAPEST_GATHER = Math.min(...SITES.map((s) => s.cost));
+// 見習い/職人の作業補正・日当・呼称(昇格 apprenticeArtisan で切り替わる)
+const apBonus = (g) => (g.apprentice ? (g.apprenticeArtisan ? ARTISAN_AP : APPRENTICE_AP) : 0);
+const helperName = (g) => (g.apprenticeArtisan ? "職人" : "見習い");
+const helperWage = (g) => (g.apprenticeArtisan ? ARTISAN_WAGE : APPRENTICE_WAGE);
+// 採集地の解禁判定(朝の一覧・大発生の抽選で共通に使う)
+const siteUnlocked = (g, s) =>
+  s.id === "shitsugen" ? g.swampUnlocked
+  : s.id === "doukutsu" ? g.caveUnlocked
+  : s.id === "haikou" ? g.haikouUnlocked : true;
+// 大発生の抽選(クリア後・毎朝)。解禁済み採集地からランダム一箇所、その地のテーブルからランダム一種
+// (exportは検証スクリプト用。ゲーム内の挙動は不変)
+export function rollOutbreak(g) {
+  if (!g.endingDone || Math.random() >= OUTBREAK_CHANCE) return null;
+  const sites = SITES.filter((s) => siteUnlocked(g, s));
+  if (!sites.length) return null;
+  const site = pick(sites);
+  const mat = pick(site.table.map(([m]) => m)); // レア含む一律(重み無視・減衰なし)
+  return { site: site.id, mat };
+}
+// 採集の抽選テーブルを組む(満月ブースト×2、大発生×OUTBREAK_MULT を素材重みに乗せる)。
+// day基準の満月判定は前夜=day-1。gatherと検証で共通に使う純関数(exportは検証用)。
+export function gatherTable(g, site) {
+  let table = site.table;
+  if (moonPhase(g.day - 1) === 4 && MOON_BOOST[site.id]) {
+    const boost = MOON_BOOST[site.id];
+    table = table.map(([m, w]) => [m, boost.includes(m) ? w * 2 : w]);
+  }
+  if (g.outbreak && g.outbreak.site === site.id) {
+    table = table.map(([m, w]) => [m, m === g.outbreak.mat ? w * OUTBREAK_MULT : w]);
+  }
+  return table;
+}
 // 現在の手持ち(倉庫の素材・在庫標本・必要な資材・工程Lv)で実行できる仕立てが1つでもあるか
 function canCraftAny(g) {
   return RECIPES.some((r) => {
@@ -255,7 +304,8 @@ function canCraftAny(g) {
   });
 }
 // 特注の手紙を1通生成(条件を満たさなければ null)。基準価=basePrice(g, id)
-function rollOrderLetter(g) {
+// (exportは検証スクリプト用。ゲーム内の挙動は不変)
+export function rollOrderLetter(g) {
   // 依頼人抽選(解禁済みの客層のみ)
   const clientPool = ORDER_CLIENTS.filter((c) => {
     if (c.flag && !g[c.flag]) return false;
@@ -267,17 +317,23 @@ function rollOrderLetter(g) {
   // 発見済みレシピの品(=作れると分かっている標本)
   const knownSpecs = [...new Set(RECIPES.filter((r) => g.known.includes(r.id)).map((r) => r.to))];
   const filt = ORDER_FILTER[client];
-  // 発見済み × 依頼人フィルタ × 採集地が解禁済み(未解禁の原材料の品は除外)
-  const pool = knownSpecs.filter((id) => SPECIMENS[id] && filt(SPECIMENS[id], basePrice(g, id))
-    && !(ORDER_SITE_GATE[id] && !g[ORDER_SITE_GATE[id]]));
+  // v8.3: クリア後は 1/3 で大口依頼。数量2〜5・対象に高額品(全身骨格級・晶洞)を追加・納期+2日。
+  const big = g.endingDone && Math.random() < ORDER_BIG_CHANCE;
+  // 発見済み × 採集地が解禁済み(未解禁の原材料の品は除外)。
+  // 通常は依頼人フィルタで絞る。大口はそれに加えて高額品も候補入りする(依頼人フィルタ不問)。
+  const pool = knownSpecs.filter((id) => SPECIMENS[id]
+    && !(ORDER_SITE_GATE[id] && !g[ORDER_SITE_GATE[id]])
+    && (filt(SPECIMENS[id], basePrice(g, id)) || (big && ORDER_BIG_ITEMS.includes(id))));
   if (!pool.length) return null;
   const specId = pick(pool);
   const price = basePrice(g, specId);
-  // 数量(基準価帯)。<150=2〜3 / 150〜250=1〜2 / 250超=1
-  const qty = price < 150 ? 2 + rnd(2) : price <= 250 ? 1 + rnd(2) : 1;
+  // 数量。大口=2〜5 / 通常は基準価帯(<150=2〜3 / 150〜250=1〜2 / 250超=1)
+  const qty = big ? 2 + rnd(4) : price < 150 ? 2 + rnd(2) : price <= 250 ? 1 + rnd(2) : 1;
   // レア素材由来は長期・大口依頼(納期加算・報酬倍率の上書き)。それ以外は通常
   const rare = ORDER_RARE[specId];
-  const term = 3 + (qty - 1) + (rare ? rare.term : 0); // 納期(受領日を含まず翌日から起算)
+  // 納期(受領日を含まず翌日から起算)。大口はさらに +2日
+  const term = 3 + (qty - 1) + (rare ? rare.term : 0) + (big ? ORDER_BIG_TERM : 0);
+  // 報酬倍率は 1.4 のまま(大口でも金額は盛らない)。レア素材由来のみ既存の上書きを維持
   const reward = round5(price * qty * (rare ? rare.mult : ORDER_REWARD_MULT));
   const li = rnd(ORDER_LETTERS[client].length);
   return { client, specId, qty, term, reward, li };
@@ -449,7 +505,7 @@ export function simulateNight(g) {
     g7: () => (g.orderMissTotal || 0) >= 1 && g.lastOrderMissDay != null && g.day - g.lastOrderMissDay <= 30,
     g8: () => g.supplyBigDay != null && g.day > g.supplyBigDay && g.day <= g.supplyBigDay + 3,
     // 今夜も休みなら「直近7日すべて休ませている」が成立する(過去6日+今夜で7日)
-    g9: () => g.apprenticeSeen && !g.apprentice && (g.apprenticeOffStreak || 0) >= 6,
+    g9: () => g.apprenticeSeen && !g.apprenticeArtisan && !g.apprentice && (g.apprenticeOffStreak || 0) >= 6,
     g10: () => (g.orderDoneTotal || 0) >= 5 && (g.lastOrderMissDay == null || g.day - g.lastOrderMissDay > 30),
   };
   // セリフ表示の直前判定。3%で、その話者が言えるうわさから1本(7日抑制中は除く)。無ければ null
@@ -779,7 +835,7 @@ export function simulateNight(g) {
 
   // 見習いの日当
   let wageText = null;
-  if (g.apprentice) { gold -= 70; wageText = "見習いに日当 70G を払った。"; }
+  if (g.apprentice) { const w = helperWage(g); gold -= w; wageText = `${helperName(g)}に日当 ${w}G を払った。`; }
 
   // 蒐集家の来訪判定(trustが負のときのみ出現率が減衰。正でも上げない)。
   // エンディングの夜は通常の蒐集家来訪をスキップ(万象の夜の演出が単独で出る)
@@ -1049,13 +1105,8 @@ export default function BoneAndGlass() {
     // 通常は2個。馴染みの地(この採集地への依頼が8回目以降)は35%で3個目が付く(表示・通知なし)
     const nth = (g.siteCount[site.id] || 0) + 1;
     const amount = 2 + (nth >= 8 && Math.random() < 0.35 ? 1 : 0);
-    // 前夜が満月だった朝の採集は特定素材の抽選重みを2倍(海月・蛾・夜光苔・梟・蝙蝠。表示・通知なし)
-    // 満月は2晩あるため、その各翌朝=計2回の朝が対象になる
-    let table = site.table;
-    if (moonPhase(g.day - 1) === 4 && MOON_BOOST[site.id]) {
-      const boost = MOON_BOOST[site.id];
-      table = site.table.map(([m, w]) => [m, boost.includes(m) ? w * 2 : w]);
-    }
+    // 前夜が満月だった朝は特定素材×2、大発生の対象素材は×3(gatherTableに集約・表示や通知はしない)
+    const table = gatherTable(g, site);
     const got = {};
     for (let i = 0; i < amount; i++) { const m = weightedPick(table); got[m] = (got[m] || 0) + 1; }
     const inv = { ...g.inv };
@@ -1263,7 +1314,7 @@ export default function BoneAndGlass() {
   const toggleApprentice = () => {
     const hire = !g.apprentice;
     const firstHire = hire && !g.apprenticeHiredOnce;
-    setG({ ...g, apprentice: hire, ap: MAX_AP + (hire ? 1 : 0), apprenticeHiredOnce: g.apprenticeHiredOnce || hire });
+    setG({ ...g, apprentice: hire, ap: MAX_AP + (hire ? apBonus({ ...g, apprentice: true }) : 0), apprenticeHiredOnce: g.apprenticeHiredOnce || hire });
     if (firstHire) flash(APPRENTICE_HIRE_FIRST); // 初めて雇った瞬間の若者(一度きり)
   };
 
@@ -1298,6 +1349,18 @@ export default function BoneAndGlass() {
     // エンディング: 図鑑コンプ達成後、翌日の夜を発生日として一度だけ確定(以後は減らない)
     let edFireDay = src.edFireDay;
     if (edFireDay == null && !src.endingDone && specComp(src.known)) edFireDay = day + 1;
+    // v8.3: 見習いの雇用日数を数える(直前の一日=src.dayで雇っていたか)。
+    // 通算20日 かつ クリア後10日 の両方を満たした翌朝に一度だけ昇格する。
+    let apprenticeDaysTotal = src.apprenticeDaysTotal || 0;
+    let apprenticeDaysPostClear = src.apprenticeDaysPostClear || 0;
+    if (src.apprentice) {
+      apprenticeDaysTotal += 1;
+      if (src.endingDone) apprenticeDaysPostClear += 1;
+    }
+    let apprenticeArtisan = src.apprenticeArtisan, apprenticePromoteMorning = false;
+    if (!apprenticeArtisan && apprenticeDaysTotal >= APPRENTICE_DAYS_TOTAL && apprenticeDaysPostClear >= APPRENTICE_DAYS_POSTCLEAR) {
+      apprenticeArtisan = true; apprenticePromoteMorning = true;
+    }
     // 蟹の救済(詰み防止・一度きり): 朝の開始時点で金欠・仕立て可能な組み合わせが皆無・
     // 学生に売れる完成在庫(標準値付けで150G以下・虫食い除く)も無いなら倉庫に蟹の亡骸を1つ置く
     let kaniRescue = false, rescueInv = src.inv;
@@ -1306,7 +1369,7 @@ export default function BoneAndGlass() {
       rescueInv = { ...src.inv, kani: (src.inv.kani || 0) + 1 };
     }
     const ng = {
-      ...src, day, phase: "morning", ap: MAX_AP + (src.apprentice ? 1 : 0),
+      ...src, day, phase: "morning", ap: MAX_AP + (src.apprentice ? (apprenticeArtisan ? ARTISAN_AP : APPRENTICE_AP) : 0),
       nightLog: [], nightRent: null, craftLog: [], offer: null, offerResult: null,
       collectorCd: Math.max(0, (src.collectorCd || 0) - 1),
       // 信頼は負のときだけ毎朝+0.5ずつ0へ回復(正の値は減衰しない)
@@ -1321,6 +1384,10 @@ export default function BoneAndGlass() {
       supplyBoughtToday: 0, // 古物市の当日購入数は毎朝リセット
       // 見習いを休ませた日が続くと伸びる(雇っていた日・解禁前は0に戻る)
       apprenticeOffStreak: src.apprenticeSeen && !src.apprentice ? (src.apprenticeOffStreak || 0) + 1 : 0,
+      // v8.3: 大発生(クリア後・毎朝抽選・翌朝リセット)
+      outbreak: rollOutbreak(src),
+      // v8.3: 見習いの昇格(雇用日数・昇格フラグ・当朝のイベント行)
+      apprenticeArtisan, apprenticeDaysTotal, apprenticeDaysPostClear, apprenticePromoteMorning,
     };
     // 大家の依頼: 4品すべて倉庫に揃った朝は自動で開く。揃っていなければ畳む。
     setOoyaCardOpen(ooyaOrderReady(ng));
@@ -1461,6 +1528,9 @@ export default function BoneAndGlass() {
   const wormCount = specEntries.filter(([k]) => isWorm(k)).reduce((n, [, v]) => n + v, 0)
     + g.shelf.filter((x) => x && isWorm(x)).length;
   const knownSpecs = new Set(RECIPES.filter((r) => g.known.includes(r.id)).map((r) => r.to));
+  // v8.3: 図鑑の刻印。品別の通算販売40個で刻印。全工程Lv4で名工の証(通り名タブ末尾)
+  const engraved = (id) => (g.soldByItem[id] || 0) >= ENGRAVE_THRESHOLD;
+  const allProcMastered = Object.keys(PROCESSES).every((p) => procLevel(g.procExp[p] || 0) >= 4);
   // 図鑑の総数: 花籠は発見するまで数に含めない(31→発見後32)。エンディングまで存在を伏せる
   const specTotal = Object.keys(SPECIMENS).length - (knownSpecs.has(HANAKAGO) ? 0 : 1);
   const curSets = activeSets(g.shelf, g.shelfSize);
@@ -1712,6 +1782,12 @@ export default function BoneAndGlass() {
                 <span>{BANSHO.morning}</span>
               </div>
             )}
+            {g.apprenticePromoteMorning && (
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13, lineHeight: 1.9, color: C.brass, borderLeft: `2px solid ${C.brass}`, paddingLeft: 8 }}>
+                <Portrait cid="wakate" imgs={imgs} fileImgs={fileImgs} size={30} />
+                <span>{APPRENTICE_PROMOTE}</span>
+              </div>
+            )}
             {g.mushiMorning && (
               <div style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13, lineHeight: 1.8, color: C.red, borderLeft: `2px solid ${C.red}`, paddingLeft: 8 }}>
                 <span style={{ fontSize: 16 }}>🐛</span>
@@ -1841,11 +1917,9 @@ export default function BoneAndGlass() {
               );
             })()}
             <div style={{ fontSize: 12, color: C.dim, lineHeight: 1.8 }}>夜のうちに届いた依頼票に目を通す。今日はどこへ人をやろうか。</div>
-            {SITES.filter((s) =>
-              s.id === "shitsugen" ? g.swampUnlocked : s.id === "doukutsu" ? g.caveUnlocked
-              : s.id === "haikou" ? g.haikouUnlocked : true
-            ).map((s) => {
+            {SITES.filter((s) => siteUnlocked(g, s)).map((s) => {
               const siteBg = fileImgs && fileImgs.sites && fileImgs.sites[s.id];
+              const outbreakHere = g.outbreak && g.outbreak.site === s.id; // 大発生の対象地
               const inner = (
                 <div style={{ position: "relative", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <div>
@@ -1854,6 +1928,7 @@ export default function BoneAndGlass() {
                     </div>
                     <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>{s.desc}</div>
                     <div style={{ fontSize: 12, marginTop: 4 }}>{s.table.map(([m]) => <MatIcon key={m} id={m} fileImgs={fileImgs} emojiSize={12} style={{ marginRight: 5 }} />)}</div>
+                    {outbreakHere && <div style={{ fontSize: 11, color: C.brass, marginTop: 4, letterSpacing: "0.03em" }}>{outbreakLine(MATERIALS[g.outbreak.mat].name)}</div>}
                   </div>
                   <Btn onClick={() => gather(s)} disabled={g.gold < s.cost}>採集依頼</Btn>
                 </div>
@@ -1893,18 +1968,21 @@ export default function BoneAndGlass() {
                 )}
               </div>
             </div>
-            {/* 見習い: 枠なし+罫線一本 */}
-            {g.rep >= 20 && (
-              <div style={{ borderTop: `1px solid ${C.line}`, paddingTop: 12, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                <div>
-                  <div style={{ fontSize: 15 }}>見習い <span style={{ fontSize: 11, color: C.dim }}>日当70G</span></div>
-                  <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>
-                    {g.apprentice ? "見習いは朝から工房にいる(作業+1)" : "雇えば朝から工房に立つ(作業+1)"}
+            {/* 見習い(昇格後は職人): 枠なし+罫線一本。呼称・日当・作業補正は昇格で切り替わる */}
+            {g.rep >= 20 && (() => {
+              const nm = helperName(g), wage = helperWage(g), bonus = g.apprenticeArtisan ? ARTISAN_AP : APPRENTICE_AP;
+              return (
+                <div style={{ borderTop: `1px solid ${C.line}`, paddingTop: 12, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                  <div>
+                    <div style={{ fontSize: 15 }}>{nm} <span style={{ fontSize: 11, color: C.dim }}>日当{wage}G</span></div>
+                    <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>
+                      {g.apprentice ? `${nm}は朝から工房にいる(作業+${bonus})` : `雇えば朝から工房に立つ(作業+${bonus})`}
+                    </div>
                   </div>
+                  <Btn onClick={toggleApprentice} style={{ flexShrink: 0 }}>{g.apprentice ? "休ませる" : "雇う"}</Btn>
                 </div>
-                <Btn onClick={toggleApprentice} style={{ flexShrink: 0 }}>{g.apprentice ? "休ませる" : "雇う"}</Btn>
-              </div>
-            )}
+              );
+            })()}
           </div>
         )}
 
@@ -1913,7 +1991,7 @@ export default function BoneAndGlass() {
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div style={{ fontSize: 12, color: C.dim }}>素材を選んで、仕立て方を決める。</div>
-              <div style={{ fontSize: 13, color: C.brass }}>作業残り {"●".repeat(g.ap)}{"○".repeat(Math.max(0, MAX_AP + (g.apprentice ? 1 : 0) - g.ap))}</div>
+              <div style={{ fontSize: 13, color: C.brass }}>作業残り {"●".repeat(g.ap)}{"○".repeat(Math.max(0, MAX_AP + apBonus(g) - g.ap))}</div>
             </div>
 
             <Panel>
@@ -2224,6 +2302,7 @@ export default function BoneAndGlass() {
                           style={{ border: `1px solid ${C.line}`, borderRadius: 5, padding: 8, opacity: found ? 1 : 0.45, cursor: found ? "pointer" : "default" }}>
                           <div style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 5 }}>
                             {found ? <SpecIcon id={id} fileImgs={fileImgs} size={28} emojiSize={13} /> : "▪"} <span>{found ? s.name : "?????"}</span>
+                            {found && engraved(id) && <span title="この店の看板になった品" style={{ fontSize: 11, color: C.brass, marginLeft: "auto" }}>{ENGRAVE_MARK}</span>}
                           </div>
                           <div style={{ fontSize: 10, color: C.dim, marginTop: 2 }}>
                             {found ? <>{CAT_NAME[s.cat]} · {s.nosale ? "非売" : `${s.price}G`}{s.tags.map((t) => <TagChip key={t} t={t} />)}</> : "未発見"}
@@ -2282,6 +2361,10 @@ export default function BoneAndGlass() {
                       <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>{BANSHO.desc}</div>
                     </div>
                   )}
+                  {/* 名工の証: 全工程Lv4に達したときだけ、通り名タブ末尾に一行(効果なし) */}
+                  {allProcMastered && (
+                    <div style={{ fontSize: 12, color: C.brass, lineHeight: 1.9, marginTop: 6, textAlign: "center" }}>{MASTER_LINE}</div>
+                  )}
                 </div>
               )}
             </div>
@@ -2320,7 +2403,12 @@ export default function BoneAndGlass() {
                 {SPEC_LORE[bookDetail] && (
                   <div style={{ fontSize: 13, color: C.ivory, lineHeight: 2, marginTop: 12, borderTop: `1px solid ${C.line}`, paddingTop: 10 }}>
                     {SPEC_LORE[bookDetail]}
+                    {engraved(bookDetail) && <span style={{ color: C.brass }}> {ENGRAVE_MARK}</span>}
                   </div>
+                )}
+                {/* 刻印: 説明文が無い品でも、看板になった品には控えめに一印 */}
+                {engraved(bookDetail) && !SPEC_LORE[bookDetail] && (
+                  <div style={{ fontSize: 13, color: C.brass, textAlign: "center", marginTop: 12 }}>{ENGRAVE_MARK}</div>
                 )}
               </div>
             </div>
@@ -2464,7 +2552,7 @@ export default function BoneAndGlass() {
           {/* タイトルへの導線(全フェーズ)。文字色は一段薄く。記録は残す */}
           <Btn onClick={() => setToTitleConfirm(true)} style={{ ...FOOT_BTN, color: C.dim }}>タイトル</Btn>
           <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
-            {g.phase === "morning" && <Btn primary onClick={() => { setCaveEvent(null); setG({ ...g, phase: "workshop", mushiMorning: null, apprenticeMorning: false, banshoMorning: false }); }} style={FOOT_BTN}>工房へ →</Btn>}
+            {g.phase === "morning" && <Btn primary onClick={() => { setCaveEvent(null); setG({ ...g, phase: "workshop", mushiMorning: null, apprenticeMorning: false, banshoMorning: false, apprenticePromoteMorning: false }); }} style={FOOT_BTN}>工房へ →</Btn>}
             {g.phase === "workshop" && <Btn primary onClick={() => { setSel(null); setG({ ...g, phase: "shelf" }); }} style={FOOT_BTN}>陳列へ →</Btn>}
             {g.phase === "shelf" && (
               <>

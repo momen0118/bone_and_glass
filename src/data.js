@@ -254,6 +254,12 @@ export const SUPPLY_SHOP = [
   { id: "bin", cost: 25 }, { id: "waku", cost: 45 }, { id: "daiza", cost: 55 },
 ];
 
+// ---------- v8.3: 大発生日(クリア後・毎朝抽選) ----------
+// 解禁済み採集地からランダム一箇所、その地のテーブルからランダム一種。対象素材の抽選重みを3倍(派遣費は通常)。
+export const OUTBREAK_CHANCE = 0.12; // クリア後、毎朝の発生率
+export const OUTBREAK_MULT = 3;      // 対象素材の抽選重み倍率
+export const outbreakLine = (matName) => `今日は${matName}が湧いているらしい。`;
+
 // ---------- 店の設え ----------
 export const SHELF_EXPAND = { 7: 800, 8: 1600, 9: 3200 };
 export const DECOR = [
@@ -359,6 +365,12 @@ export const CAVE_UNLOCK = {
 export const ORDER_UNLOCK_REP = 15;   // 解禁評判
 export const ORDER_CHANCE = 1 / 3;    // 依頼を受けていない朝に手紙が届く確率
 export const ORDER_REWARD_MULT = 1.4; // 報酬倍率(基準価×数量×これ)
+// v8.3: 特注の大口(クリア後スケール)。通常枠・同時1件の制限内で、大口になる確率。
+// 数量2〜5・対象に高額品を追加・納期+2日・報酬倍率は1.4のまま(金額で盛らない)。
+export const ORDER_BIG_CHANCE = 1 / 3; // クリア後、依頼が大口になる確率
+export const ORDER_BIG_TERM = 2;       // 大口の納期加算(通常式に +2日)
+// 大口で対象に加わる高額品(全身骨格級・晶洞)。通常の依頼人フィルタに関わらず候補入りする
+export const ORDER_BIG_ITEMS = ["s_zenshin", "s_fukurouzen", "s_nezuzen", "s_shoudou"];
 export const ORDER_EXPIRED_LOG = "約束の品は、届かなかった。";
 // 通常依頼の破棄「断りの手紙を出す」(独白形式・数値非表示。評判-2固定・常連度不変)
 export const ORDER_DECLINE = {
@@ -637,6 +649,12 @@ export const OP = [
 export const APPRENTICE_INTRO = "人手が要る。……朝のうちに、貼り紙を出しておいた。";
 // 初めて「雇う」を実行した瞬間のトースト(一度きり)
 export const APPRENTICE_HIRE_FIRST = "そわそわした若者が、貼り紙を握りしめて立っていた。";
+// v8.3: 見習いの昇格(職人)。通算雇用20日 かつ クリア後雇用10日 の両方を満たした翌朝に一度きり。
+export const APPRENTICE_PROMOTE = "見習いの手つきが、いつの間にか様になっている。……もう、見習いと呼ぶのも失礼か。";
+export const APPRENTICE_DAYS_TOTAL = 20;     // 昇格に必要な通算雇用日数
+export const APPRENTICE_DAYS_POSTCLEAR = 10;  // 昇格に必要なクリア後の雇用日数
+export const APPRENTICE_WAGE = 70, ARTISAN_WAGE = 90; // 日当(見習い / 職人)
+export const APPRENTICE_AP = 1, ARTISAN_AP = 2;       // 作業補正(見習い / 職人)
 // 月次記録の所感(月数ベース。1・2・3ヶ月目、4ヶ月目以降)
 export const MONTH_REMARKS = [
   "気づけば、ひと月が経っていた。硝子は毎晩磨かれている。",
@@ -644,6 +662,13 @@ export const MONTH_REMARKS = [
   "この街で知らぬ者のない標本商になった。",
   "今月も、店は静かに繁盛した。",
 ];
+
+// ---------- v8.3: 図鑑の刻印(全期間有効) ----------
+// 品別の累計販売数がこの数に達した標本の図鑑カードに、控えめな刻印(数字は出さない)。
+export const ENGRAVE_THRESHOLD = 40;
+export const ENGRAVE_MARK = "❋"; // 刻印(✦は銘板/通り名で使用中のため、区別のつく控えめな印)
+// 全工程がLv4に達したとき、通り名タブ末尾に出す名工の証(効果なし)。
+export const MASTER_LINE = "——全ての工程を、極めた手である。";
 
 // ---------- 帳簿(店史) ----------
 // 旧セーブ引き継ぎ時、帳簿の一行目(記録の始まりより前)に出す

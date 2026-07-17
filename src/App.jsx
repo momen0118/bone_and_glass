@@ -139,7 +139,9 @@ function newGame() {
 }
 const clampTrust = (t) => Math.max(-6, Math.min(6, t));
 // 家賃の段階化: 開店前(その日の朝時点)の評判で判定。大家は先週までの噂を聞いて来る
-const rentFor = (rep) => (rep >= 40 ? 400 : rep >= 20 ? 350 : RENT);
+// 家賃の段階化(v8.5: 大家の強欲)。初回300(据え置き)→ 評判40で600 → 評判60で800。
+// 事務的な値上げではなく、店の羽振りを見て吹っかけてくる額(調度・買い取りへの圧)。
+const rentFor = (rep) => (rep >= 60 ? 800 : rep >= 40 ? 600 : RENT);
 // v1セーブの取り込み(exportは検証スクリプト用。ゲーム内の挙動は不変)
 export function migrate(loaded) {
   const base = newGame();
@@ -721,9 +723,9 @@ export function simulateNight(g) {
       custBought.gakusei = 0; // 後輩に代替わり(この購入は数に残さない)
       log.push({
         t: "sale", cid: "gakusei", big: true, grad: true,
-        line: GAKUSEI_GRAD.line, line2: GAKUSEI_GRAD.line2, sub: GAKUSEI_GRAD.sub,
+        open: GAKUSEI_GRAD.open, line: GAKUSEI_GRAD.line, line2: GAKUSEI_GRAD.line2, sub: GAKUSEI_GRAD.sub,
         itemId: target.id, price,
-        text: `学生「${GAKUSEI_GRAD.line}」「${GAKUSEI_GRAD.line2}」— ${sp.icon} ${sp.name}を ${price}G で購入。`,
+        text: `学生「${GAKUSEI_GRAD.open}」「${GAKUSEI_GRAD.line}」「${GAKUSEI_GRAD.line2}」— ${sp.icon} ${sp.name}を ${price}G で購入。`,
       });
     }
   }
@@ -859,7 +861,7 @@ export function simulateNight(g) {
     // 家賃回収は客と同じカードに昇格。line=大家のセリフ / narr=セリフなしの地の文 / payLabel=支払額 / text=まとめ時の一行
     let line = null, narr = null, payLabel, text;
     if (rent > (g.lastRent != null ? g.lastRent : RENT)) {
-      line = rent >= 400 ? OOYA.raise200 : OOYA.raise150;
+      line = rent >= 800 ? OOYA.raise200 : OOYA.raise150; // 最上段(800)だけ強い文言・それ以外は控えめ
       payLabel = `家賃 ${rent}G`;
       text = `大家「${line}」— 家賃は ${rent}G になった。`;
     } else if (cash < rent) {
@@ -1088,6 +1090,7 @@ export default function BoneAndGlass() {
   const [ooyaCardOpen, setOoyaCardOpen] = useState(false);
   // OP(はじまりの朝)の表示ステップ(null=非表示 / 0〜=表示中。新規開始時のみ)
   const [opStep, setOpStep] = useState(null);
+  const [opClosing, setOpClosing] = useState(false); // OP最終枚→朝への統一フェード(フェードアウト中)
   // タイトルに戻る確認(下部バー・全フェーズ)。店の記録は残す
   const [toTitleConfirm, setToTitleConfirm] = useState(false);
   // タイトルの「最初から」確認(既存セーブがある場合のみ)。記録を消してOPへ
@@ -1098,7 +1101,7 @@ export default function BoneAndGlass() {
     if (!document.getElementById("bg-fade-kf")) {
       const st = document.createElement("style");
       st.id = "bg-fade-kf";
-      st.textContent = "@keyframes bgFadeIn{from{opacity:0}to{opacity:1}}";
+      st.textContent = "@keyframes bgFadeIn{from{opacity:0}to{opacity:1}}@keyframes bgFadeOut{from{opacity:1}to{opacity:0}}";
       document.head.appendChild(st);
     }
     (async () => {
@@ -1168,12 +1171,14 @@ export default function BoneAndGlass() {
     let gatherCount = g.gatherCount || 0, caveUnlocked = g.caveUnlocked;
     if (site.id === "mori" || site.id === "umibe") gatherCount += 1;
     const justUnlocked = !caveUnlocked && gatherCount >= CAVE_UNLOCK.threshold;
+    // 解禁は朝画面冒頭のイベント行(採集人の報告)で見せる。トーストは出さない(二重表示を避ける)
     if (justUnlocked) { caveUnlocked = true; setCaveEvent(CAVE_UNLOCK.text); }
     // 採集人の満月報告: 2回目の満月(相4)の一晩目の朝(奇数日=満月の対のうち先の日)に採集依頼を出したら一度きり
     const fireMoonReport = !g.moonReportDone && moonPhase(g.day) === 4 && g.day % 2 === 1 && Math.floor((g.day - 1) / 14) === 1;
     setG({ ...g, gold: g.gold - site.cost, inv, siteCount, gatherCount, caveUnlocked,
       moonReport: g.moonReport || fireMoonReport, moonReportDone: g.moonReportDone || fireMoonReport });
-    flash(justUnlocked ? CAVE_UNLOCK.text : "入手: " + Object.entries(got).map(([k, v]) => `${itemIcon(k)}${itemName(k)} ${v}`).join("、"));
+    // トーストは常に入手内容のみ(解禁時も入手は発生している。解禁はイベント行が担う)
+    flash("入手: " + Object.entries(got).map(([k, v]) => `${itemIcon(k)}${itemName(k)} ${v}`).join("、"));
   };
   const buySupply = (s, qty = 1) => {
     const total = s.cost * qty;
@@ -1689,6 +1694,7 @@ export default function BoneAndGlass() {
               <div style={{ fontSize: 13, lineHeight: 1.9, color: C.ivory }}>{withPeriod(tapLine)}</div>
             ) : (
               <>
+                {l.open && <div style={{ fontSize: 13, lineHeight: 1.9, color: C.ivory, marginBottom: 6 }}>{withPeriod(l.open)}</div>}
                 <div style={{ fontSize: 13, lineHeight: 1.9, color: l.line ? C.ivory : C.dim }}>
                   {l.line ? withPeriod(l.line) : (l.narr || l.text)}
                 </div>
@@ -2483,18 +2489,19 @@ export default function BoneAndGlass() {
             const key = k === "wakate" ? "gakusei" : k;
             custTally[key] = (custTally[key] || 0) + v;
           });
-          const [topCust, topCustN] = maxEntry(custTally);
-          const custTie = Object.values(custTally).filter((v) => v === topCustN).length > 1;
+          // 販売実績があれば必ず最多客層を出す(同数の並びでも maxEntry が挿入順で一意に決める)。
+          // データが無いときだけ ──。以前は同数タイを ── にしていたが、記録済みでも空に見える不具合だった。
+          const [topCust] = maxEntry(custTally);
           const custName = (id) => (id === "saikushi" ? SAIKUSHI.name : (CUSTOMERS.find((c) => c.id === id) || {}).name) || "";
           const months = [...(g.monthly || [])].reverse(); // 新しい順
           const tally = [
             ["一番売った品", topItem ? SPECIMENS[topItem].name : "──"],
             ["一番売った分類", topCat ? CAT_NAME[topCat] : "──"],
-            ["一番売れた客層", topCust && !custTie ? custName(topCust) : "──"],
+            ["一番売れた客層", topCust ? custName(topCust) : "──"],
             ["最高月商", `${g.bestMonthEarn || 0}G`],
             ["通り名の変遷", g.aliasHistory.length ? g.aliasHistory.map((c) => ALIASES[c].name).join(" → ") : "──"],
           ];
-          const title = topCust && !custTie ? LEDGER_TITLES[topCust] : null;
+          const title = topCust ? LEDGER_TITLES[topCust] : null;
           return (
             <div onClick={() => setShowLedger(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, zIndex: 50 }}>
               <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.brass}`, borderRadius: 4, padding: 16, maxWidth: 480, width: "100%", maxHeight: "82vh", overflowY: "auto" }}>
@@ -2755,9 +2762,12 @@ export default function BoneAndGlass() {
       {opStep !== null && OP[opStep] && (() => {
         const sc = OP[opStep];
         const imgUrl = sc.img && fileImgs && fileImgs.op && fileImgs.op[sc.img];
-        const advance = () => setOpStep(opStep + 1 < OP.length ? opStep + 1 : null);
+        // 最終枚のタップは即座に閉じず、全面をフェードアウトして1日目の朝へ溶かす(統一フェード)
+        const advance = () => { if (opClosing) return; if (opStep + 1 < OP.length) setOpStep(opStep + 1); else setOpClosing(true); };
         return (
-          <div onClick={advance} style={{ position: "fixed", inset: 0, background: "#0a0806", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 28, zIndex: 80, cursor: "pointer", fontFamily: "Georgia, 'Yu Mincho', serif" }}>
+          <div onClick={advance}
+            onAnimationEnd={(e) => { if (opClosing && e.animationName === "bgFadeOut") { setOpStep(null); setOpClosing(false); } }}
+            style={{ position: "fixed", inset: 0, background: "#0a0806", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 28, zIndex: 80, cursor: "pointer", fontFamily: "Georgia, 'Yu Mincho', serif", animation: opClosing ? "bgFadeOut 0.75s ease forwards" : undefined }}>
             <div key={opStep} style={{ width: "100%", maxWidth: 400, animation: FADE }}>
               {imgUrl ? (
                 // 画像+地の文(月の独白と同じ様式: カード内背景+下部に地の文)

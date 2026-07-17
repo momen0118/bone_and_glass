@@ -102,6 +102,13 @@ function newGame() {
     ooyaPreviewDone: false,   // 大家の初回家賃予告(6日目の夜)の消化(一度きり)
     kaniRescue: false,        // その朝に蟹の救済イベント行を出すか(翌朝クリア)
     kaniRescueDone: false,    // 蟹の救済(詰み防止)の消化(一度きり)
+    // --- v8.1: 店史(帳簿) ---
+    monthly: [],              // 月次記録の蓄積 [{ m, earn, sold, rep, alias }](30日ごとに締める)
+    monthEarn: 0, monthSold: 0, // 今月(30日区切り)の売上・販売数(締めごとにリセット)
+    soldByItem: {},           // 品別の通算販売数(標本ID → 数。soldByCatと同じ範囲を数える)
+    soldByCust: {},           // 客層別の通算販売数(客ID → 数。soldByCatと同じ範囲を数える)
+    bestMonthEarn: 0,         // 最高月商(月の締めで更新)
+    historyLost: false,       // 旧セーブ引き継ぎ(帳簿に「記録は失われている」を出す)
   };
 }
 const clampTrust = (t) => Math.max(-6, Math.min(6, t));
@@ -174,6 +181,14 @@ function migrate(loaded) {
   g.ooyaPreviewDone = loaded.ooyaPreviewDone !== undefined ? !!loaded.ooyaPreviewDone : (loaded.day || 1) > 6;
   g.kaniRescue = !!loaded.kaniRescue;
   g.kaniRescueDone = !!loaded.kaniRescueDone;
+  // v8.1: 店史。旧セーブは「記録は今月から」(過去分は遡らず、帳簿に喪失の一行を出す)
+  g.monthly = loaded.monthly || [];
+  g.historyLost = loaded.historyLost !== undefined ? !!loaded.historyLost : !loaded.monthly;
+  g.monthEarn = loaded.monthEarn || 0;
+  g.monthSold = loaded.monthSold || 0;
+  g.soldByItem = loaded.soldByItem || {};
+  g.soldByCust = loaded.soldByCust || {};
+  g.bestMonthEarn = loaded.bestMonthEarn || 0;
   // 買い取り済みの旧セーブ: 翌日を「買い取り当日」とみなしてイベント列を開始する
   g.buyoutDay = typeof loaded.buyoutDay === "number" ? loaded.buyoutDay
     : (g.ownShop && !g.kifujinRumorDone ? g.day + 1 : null);
@@ -328,6 +343,8 @@ function simulateNight(g) {
   const shelf = [...g.shelf];
   const spec = { ...g.spec };
   const soldByCat = { ...g.soldByCat };
+  const soldByItem = { ...g.soldByItem };
+  const soldByCust = { ...g.soldByCust };
   const custBought = { ...g.custBought };
   const mode = PRICE_MODES[g.priceMode];
   const sets = activeSets(shelf, g.shelfSize);
@@ -395,6 +412,8 @@ function simulateNight(g) {
       shelf[target.i] = null;
       gold += price; sold++;
       soldByCat[sp.cat] = (soldByCat[sp.cat] || 0) + 1;
+      soldByItem[target.id] = (soldByItem[target.id] || 0) + 1;
+      soldByCust[c.id] = (soldByCust[c.id] || 0) + 1;
       custBought[c.id] = bought + 1;
       rep += 1 + (sp.tags.includes("rare") ? 1 : 0) + mode.repBonus;
       const big = price >= 400;
@@ -434,6 +453,8 @@ function simulateNight(g) {
         const sp = SPECIMENS[shelf[i]];
         total += price; gold += price; sold++;
         soldByCat[sp.cat] = (soldByCat[sp.cat] || 0) + 1;
+        soldByItem[shelf[i]] = (soldByItem[shelf[i]] || 0) + 1;
+        soldByCust.koujika = (soldByCust.koujika || 0) + 1;
         rep += 1 + (sp.tags.includes("rare") ? 1 : 0) + mode.repBonus;
         shelf[i] = null;
       }
@@ -476,6 +497,8 @@ function simulateNight(g) {
       shelf[target.i] = null;
       gold += price; sold++;
       soldByCat[sp.cat] = (soldByCat[sp.cat] || 0) + 1;
+      soldByItem[target.id] = (soldByItem[target.id] || 0) + 1;
+      soldByCust.gakusei = (soldByCust.gakusei || 0) + 1;
       rep += 1 + (sp.tags.includes("rare") ? 1 : 0) + mode.repBonus;
       custBought.gakusei = 0; // 後輩に代替わり(この購入は数に残さない)
       log.push({
@@ -662,7 +685,7 @@ function simulateNight(g) {
       else if (stockRares.length) { offer = { specId: pick(stockRares), source: "stock" }; }
     }
   }
-  return { log, gold, rep, sold, rentLog, rentPaid, wageText, shelf, spec, soldByCat, custBought, offer,
+  return { log, gold, rep, sold, rentLog, rentPaid, wageText, shelf, spec, soldByCat, soldByItem, soldByCust, custBought, offer,
     gakuseiGraduated: graduated, swampUnlocked,
     camphor, mushiFirstDone, mushiFirstNight, mushiMorning, mushiSold, anaAlias,
     celebrated, kifujinRumor, openingTonight, nineBuy, ooyaPreview };
@@ -1070,7 +1093,8 @@ export default function BoneAndGlass() {
       gold: g.gold + res.gold, rep: g.rep + res.rep,
       nightLog: log, nightEarn: res.gold, nightRent: res.rentLog ? res.rentLog.text : null,
       totalEarn: g.totalEarn + Math.max(0, res.gold), totalSold: g.totalSold + res.sold,
-      soldByCat: res.soldByCat, custBought: res.custBought,
+      monthEarn: (g.monthEarn || 0) + Math.max(0, res.gold), monthSold: (g.monthSold || 0) + res.sold,
+      soldByCat: res.soldByCat, soldByItem: res.soldByItem, soldByCust: res.soldByCust, custBought: res.custBought,
       alias: newAlias, aliasHistory,
       offer: res.offer, offerResult: null,
       lastRent: res.rentPaid != null ? res.rentPaid : g.lastRent,
@@ -1103,6 +1127,7 @@ export default function BoneAndGlass() {
     if (choice === "fair") {
       const st = removeItem(g);
       setG({ ...st, gold: st.gold + fair, rep: st.rep + 3, nightEarn: st.nightEarn + fair, totalEarn: st.totalEarn + fair, totalSold: st.totalSold + 1,
+        monthEarn: (st.monthEarn || 0) + fair, monthSold: (st.monthSold || 0) + 1,
         offer: null, offerResult: `${sp.name}を ${fair}G で譲った。蒐集家「${COLLECTOR.dealFair}」`, collectorCd: 2,
         trust: clampTrust((g.trust || 0) + 1) });
     } else if (choice === "high") {
@@ -1115,6 +1140,7 @@ export default function BoneAndGlass() {
       if (Math.random() < highChance) {
         const st = removeItem(g);
         setG({ ...st, gold: st.gold + high, rep: st.rep + 2, nightEarn: st.nightEarn + high, totalEarn: st.totalEarn + high, totalSold: st.totalSold + 1,
+          monthEarn: (st.monthEarn || 0) + high, monthSold: (st.monthSold || 0) + 1,
           offer: null, offerResult: `強気の値をつけた……通った。${sp.name}を ${high}G で売却。蒐集家「${COLLECTOR.dealHigh}」`, collectorCd: 2,
           trust: clampTrust(trust + 1) });
       } else {
@@ -1140,6 +1166,14 @@ export default function BoneAndGlass() {
   const advanceDay = (extra = {}) => {
     const src = { ...g, ...extra };
     const day = src.day + 1;
+    // 店史: 月の締め(30日ごと)。その月の売上・販売数と、月末時点の評判・通り名を蓄積する
+    let monthly = src.monthly || [], monthEarn = src.monthEarn || 0, monthSold = src.monthSold || 0,
+      bestMonthEarn = src.bestMonthEarn || 0;
+    if (src.day % 30 === 0) {
+      monthly = [...monthly, { m: src.day / 30, earn: monthEarn, sold: monthSold, rep: src.rep, alias: src.alias }];
+      bestMonthEarn = Math.max(bestMonthEarn, monthEarn);
+      monthEarn = 0; monthSold = 0;
+    }
     // 特注: 期限切れ判定(無断すっぽかし)。評判-4、かつ依頼人のcustBought -3(下限0)。ログは従来の一行のまま
     let order = src.order, rep = src.rep, orderExpired = false, letter = null, custBought = src.custBought;
     if (order && day > order.dueDay) {
@@ -1174,6 +1208,7 @@ export default function BoneAndGlass() {
       banshoMorning, banshoAlias: src.banshoAlias || banshoMorning,
       moonReport: false, // 満月報告は当日の朝のみ。翌朝クリア(消化フラグ moonReportDone は保持)
       inv: rescueInv, kaniRescue, kaniRescueDone: src.kaniRescueDone || kaniRescue,
+      monthly, monthEarn, monthSold, bestMonthEarn,
     };
     // 大家の依頼: 4品すべて倉庫に揃った朝は自動で開く。揃っていなければ畳む。
     setOoyaCardOpen(ooyaOrderReady(ng));

@@ -723,9 +723,9 @@ export function simulateNight(g) {
       custBought.gakusei = 0; // 後輩に代替わり(この購入は数に残さない)
       log.push({
         t: "sale", cid: "gakusei", big: true, grad: true,
-        line: GAKUSEI_GRAD.line, line2: GAKUSEI_GRAD.line2, sub: GAKUSEI_GRAD.sub,
+        open: GAKUSEI_GRAD.open, line: GAKUSEI_GRAD.line, line2: GAKUSEI_GRAD.line2, sub: GAKUSEI_GRAD.sub,
         itemId: target.id, price,
-        text: `学生「${GAKUSEI_GRAD.line}」「${GAKUSEI_GRAD.line2}」— ${sp.icon} ${sp.name}を ${price}G で購入。`,
+        text: `学生「${GAKUSEI_GRAD.open}」「${GAKUSEI_GRAD.line}」「${GAKUSEI_GRAD.line2}」— ${sp.icon} ${sp.name}を ${price}G で購入。`,
       });
     }
   }
@@ -1691,6 +1691,7 @@ export default function BoneAndGlass() {
               <div style={{ fontSize: 13, lineHeight: 1.9, color: C.ivory }}>{withPeriod(tapLine)}</div>
             ) : (
               <>
+                {l.open && <div style={{ fontSize: 13, lineHeight: 1.9, color: C.ivory, marginBottom: 6 }}>{withPeriod(l.open)}</div>}
                 <div style={{ fontSize: 13, lineHeight: 1.9, color: l.line ? C.ivory : C.dim }}>
                   {l.line ? withPeriod(l.line) : (l.narr || l.text)}
                 </div>

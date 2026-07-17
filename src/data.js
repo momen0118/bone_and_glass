@@ -254,6 +254,12 @@ export const SUPPLY_SHOP = [
   { id: "bin", cost: 25 }, { id: "waku", cost: 45 }, { id: "daiza", cost: 55 },
 ];
 
+// ---------- v8.3: 大発生日(クリア後・毎朝抽選) ----------
+// 解禁済み採集地からランダム一箇所、その地のテーブルからランダム一種。対象素材の抽選重みを3倍(派遣費は通常)。
+export const OUTBREAK_CHANCE = 0.12; // クリア後、毎朝の発生率
+export const OUTBREAK_MULT = 3;      // 対象素材の抽選重み倍率
+export const outbreakLine = (matName) => `今日は${matName}が湧いているらしい。`;
+
 // ---------- 店の設え ----------
 export const SHELF_EXPAND = { 7: 800, 8: 1600, 9: 3200 };
 export const DECOR = [

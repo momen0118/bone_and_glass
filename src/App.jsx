@@ -22,6 +22,7 @@ import {
   GOSSIP, GOSSIP_CHANCE, GOSSIP_SPEAKERS, GOSSIP_CUST_MIN,
   HANAKAGO, BANSHO, OPENING_NIGHT, NINE_BUY,
   RENT, RENT_INTERVAL, MAX_AP,
+  OUTBREAK_CHANCE, OUTBREAK_MULT, outbreakLine,
 } from "./data.js";
 import { storage } from "./storage.js";
 import { loadFileImages, FILE_ZOOM, specTrim, portraitFrame, portraitVignette } from "./images.js";
@@ -122,6 +123,8 @@ function newGame() {
     lastOrderMissDay: null,   // 直近のすっぽかし日
     orderDoneTotal: 0,        // 特注の達成の累計
     apprenticeOffStreak: 0,   // 見習いを連続で休ませている日数(解禁後・雇った日で0に戻る)
+    // --- v8.3: それからの店(クリア後の日常) ---
+    outbreak: null,           // その日の大発生 { site, mat }(クリア後・毎朝抽選・翌朝リセット)
   };
 }
 const clampTrust = (t) => Math.max(-6, Math.min(6, t));
@@ -225,6 +228,8 @@ export function migrate(loaded) {
   g.lastOrderMissDay = typeof loaded.lastOrderMissDay === "number" ? loaded.lastOrderMissDay : null;
   g.orderDoneTotal = loaded.orderDoneTotal || 0;
   g.apprenticeOffStreak = loaded.apprenticeOffStreak || 0;
+  // v8.3: 大発生は保存しない(毎朝抽選)
+  g.outbreak = loaded.outbreak || null;
   // 買い取り済みの旧セーブ: 翌日を「買い取り当日」とみなしてイベント列を開始する
   g.buyoutDay = typeof loaded.buyoutDay === "number" ? loaded.buyoutDay
     : (g.ownShop && !g.kifujinRumorDone ? g.day + 1 : null);
@@ -243,6 +248,20 @@ function endingReady(g) {
 }
 // 最安の採集費(蟹の救済の発火判定に使う)
 const CHEAPEST_GATHER = Math.min(...SITES.map((s) => s.cost));
+// 採集地の解禁判定(朝の一覧・大発生の抽選で共通に使う)
+const siteUnlocked = (g, s) =>
+  s.id === "shitsugen" ? g.swampUnlocked
+  : s.id === "doukutsu" ? g.caveUnlocked
+  : s.id === "haikou" ? g.haikouUnlocked : true;
+// 大発生の抽選(クリア後・毎朝)。解禁済み採集地からランダム一箇所、その地のテーブルからランダム一種
+function rollOutbreak(g) {
+  if (!g.endingDone || Math.random() >= OUTBREAK_CHANCE) return null;
+  const sites = SITES.filter((s) => siteUnlocked(g, s));
+  if (!sites.length) return null;
+  const site = pick(sites);
+  const mat = pick(site.table.map(([m]) => m)); // レア含む一律(重み無視・減衰なし)
+  return { site: site.id, mat };
+}
 // 現在の手持ち(倉庫の素材・在庫標本・必要な資材・工程Lv)で実行できる仕立てが1つでもあるか
 function canCraftAny(g) {
   return RECIPES.some((r) => {
@@ -1056,6 +1075,10 @@ export default function BoneAndGlass() {
       const boost = MOON_BOOST[site.id];
       table = site.table.map(([m, w]) => [m, boost.includes(m) ? w * 2 : w]);
     }
+    // v8.3: 大発生。この採集地が対象なら、その素材の抽選重みを3倍(満月ブーストとは独立に乗る)
+    if (g.outbreak && g.outbreak.site === site.id) {
+      table = table.map(([m, w]) => [m, m === g.outbreak.mat ? w * OUTBREAK_MULT : w]);
+    }
     const got = {};
     for (let i = 0; i < amount; i++) { const m = weightedPick(table); got[m] = (got[m] || 0) + 1; }
     const inv = { ...g.inv };
@@ -1321,6 +1344,8 @@ export default function BoneAndGlass() {
       supplyBoughtToday: 0, // 古物市の当日購入数は毎朝リセット
       // 見習いを休ませた日が続くと伸びる(雇っていた日・解禁前は0に戻る)
       apprenticeOffStreak: src.apprenticeSeen && !src.apprentice ? (src.apprenticeOffStreak || 0) + 1 : 0,
+      // v8.3: 大発生(クリア後・毎朝抽選・翌朝リセット)
+      outbreak: rollOutbreak(src),
     };
     // 大家の依頼: 4品すべて倉庫に揃った朝は自動で開く。揃っていなければ畳む。
     setOoyaCardOpen(ooyaOrderReady(ng));
@@ -1841,11 +1866,9 @@ export default function BoneAndGlass() {
               );
             })()}
             <div style={{ fontSize: 12, color: C.dim, lineHeight: 1.8 }}>夜のうちに届いた依頼票に目を通す。今日はどこへ人をやろうか。</div>
-            {SITES.filter((s) =>
-              s.id === "shitsugen" ? g.swampUnlocked : s.id === "doukutsu" ? g.caveUnlocked
-              : s.id === "haikou" ? g.haikouUnlocked : true
-            ).map((s) => {
+            {SITES.filter((s) => siteUnlocked(g, s)).map((s) => {
               const siteBg = fileImgs && fileImgs.sites && fileImgs.sites[s.id];
+              const outbreakHere = g.outbreak && g.outbreak.site === s.id; // 大発生の対象地
               const inner = (
                 <div style={{ position: "relative", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <div>
@@ -1854,6 +1877,7 @@ export default function BoneAndGlass() {
                     </div>
                     <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>{s.desc}</div>
                     <div style={{ fontSize: 12, marginTop: 4 }}>{s.table.map(([m]) => <MatIcon key={m} id={m} fileImgs={fileImgs} emojiSize={12} style={{ marginRight: 5 }} />)}</div>
+                    {outbreakHere && <div style={{ fontSize: 11, color: C.brass, marginTop: 4, letterSpacing: "0.03em" }}>{outbreakLine(MATERIALS[g.outbreak.mat].name)}</div>}
                   </div>
                   <Btn onClick={() => gather(s)} disabled={g.gold < s.cost}>採集依頼</Btn>
                 </div>

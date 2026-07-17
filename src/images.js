@@ -62,8 +62,14 @@ export async function loadFileImages() {
   const result = { shop: urlFor("/img/shop"), logo: urlFor("/img/logo"), portraits: {}, specimens: {}, materials: {}, sites: {}, moon: {},
     // 月の独白の一拍で使う空の画像(満月=full / 新月=new)。未作成でも可(無ければ地の文のみ)
     sky: { full: urlFor("/img/sky/full"), new: urlFor("/img/sky/new") },
-    // OP(はじまりの朝)の画像。未作成でも可(無ければその枚は文字のみ)
-    op: { kotori: urlFor("/img/op/kotori") } };
+    // OP・演出の画像。未作成でも可(無ければその枚は文字のみ)
+    op: { kotori: urlFor("/img/op/kotori"), kaimen: urlFor("/img/op/kaimen") },
+    // 単発の帯画像などの置き場。/img/misc/ 直下を自動収録(今後の「ちょろっと画像」用)
+    misc: {} };
+  for (const path in FILES) {
+    const m = path.match(/^\/img\/misc\/([^/]+)\.(?:png|jpg)$/);
+    if (m && !result.misc[m[1]]) result.misc[m[1]] = urlFor(`/img/misc/${m[1]}`);
+  }
   for (let i = 0; i < 7; i++) {
     const u = urlFor(`/img/moon/${i}`); // 月相ドットの差し替え口(0新月〜4満月〜6有明)。未作成でも可
     if (u) result.moon[i] = u;

@@ -19,7 +19,7 @@ import {
   ORDER_CLIENTS, ORDER_FILTER, ORDER_LETTERS, ORDER_SITE_GATE, ORDER_RARE,
   BUYOUT_CELEBRATE, SCENES, OOYA_ORDER,
   APPRENTICE_INTRO, APPRENTICE_HIRE_FIRST, MONTH_REMARKS, RUMORS, RUMOR_CHANCE, OP,
-  ENDING_REP, HANAKAGO, BANSHO,
+  HANAKAGO, BANSHO, OPENING_NIGHT, NINE_BUY,
   RENT, RENT_INTERVAL, MAX_AP,
 } from "./data.js";
 import { storage } from "./storage.js";
@@ -91,6 +91,10 @@ function newGame() {
     hanakagoState: "none",    // 硝子の花籠: none(未入手)/ material(素材所持)/ done(完成)
     banshoAlias: false,       // 通り名「万象堂」の獲得
     banshoMorning: false,     // その朝に万象堂の冒頭ログを出すか(翌朝クリア)
+    edFireDay: null,          // 図鑑コンプ後、この日の夜の閉店後に万象の夜が発生(3〜5日後)
+    // --- v7.1 ---
+    openingNightDone: false,  // 開店の夜(1日目の学生イベント)の消化
+    nineBuyDone: false,       // 好事家の九枠買い(隠しイベント)の消化
   };
 }
 const clampTrust = (t) => Math.max(-6, Math.min(6, t));
@@ -152,17 +156,25 @@ function migrate(loaded) {
   g.hanakagoState = loaded.hanakagoState || "none";
   g.banshoAlias = !!loaded.banshoAlias;
   g.banshoMorning = !!loaded.banshoMorning;
+  g.edFireDay = typeof loaded.edFireDay === "number" ? loaded.edFireDay : null;
+  // v7.1: 開店の夜は1日目を過ぎている既存セーブでは消化済み(発生させない)
+  g.openingNightDone = loaded.openingNightDone !== undefined ? !!loaded.openingNightDone : (loaded.day || 1) > 1;
+  g.nineBuyDone = !!loaded.nineBuyDone;
   // 買い取り済みの旧セーブ: 翌日を「買い取り当日」とみなしてイベント列を開始する
   g.buyoutDay = typeof loaded.buyoutDay === "number" ? loaded.buyoutDay
     : (g.ownShop && !g.kifujinRumorDone ? g.day + 1 : null);
   return g;
 }
-// エンディング条件: 花籠を除く全標本を発見済み かつ 評判ENDING_REP以上(未消化)。trust・出現率は不問
-function endingReady(g) {
-  if (g.endingDone || g.rep < ENDING_REP) return false;
+// 図鑑コンプ(花籠を除く全標本を発見済み)。花籠は数に含めない
+function specComp(known) {
   const goal = Object.keys(SPECIMENS).filter((id) => id !== HANAKAGO).length;
-  const found = new Set(RECIPES.filter((r) => g.known.includes(r.id) && r.to !== HANAKAGO).map((r) => r.to)).size;
+  const found = new Set(RECIPES.filter((r) => known.includes(r.id) && r.to !== HANAKAGO).map((r) => r.to)).size;
   return found >= goal;
+}
+// エンディング条件: 図鑑31種コンプ(評判は不問・trust出現率も不問)。
+// 即日は発生せず、コンプ達成から3〜5日後(edFireDay)の夜の閉店後に発生。
+function endingReady(g) {
+  return !g.endingDone && g.edFireDay != null && g.day >= g.edFireDay && specComp(g.known);
 }
 // 特注の手紙を1通生成(条件を満たさなければ null)。基準価=basePrice(g, id)
 function rollOrderLetter(g) {
@@ -368,10 +380,45 @@ function simulateNight(g) {
     return { bought: false };
   };
 
+  // 好事家の九枠買い(隠しイベント): 棚9枠すべてが同一のrare標本 + 好事家custBought>=15。
+  // 好事家がその夜の最初の客として来店し、9点を一括購入(表示価格の総和)。以後その夜は店じまい。
+  let nineBuy = false;
+  {
+    const ids = shelf.slice(0, 9);
+    const rareId = ids[0];
+    if (!g.nineBuyDone && g.shelfSize === 9 && rareId && !isWorm(rareId)
+        && SPECIMENS[rareId].tags.includes("rare") && ids.every((x) => x === rareId)
+        && (custBought.koujika || 0) >= 15) {
+      nineBuy = true;
+      let total = 0;
+      for (let i = 0; i < 9; i++) {
+        const price = priceAt(i);
+        const sp = SPECIMENS[shelf[i]];
+        total += price; gold += price; sold++;
+        soldByCat[sp.cat] = (soldByCat[sp.cat] || 0) + 1;
+        rep += 1 + (sp.tags.includes("rare") ? 1 : 0) + mode.repBonus;
+        shelf[i] = null;
+      }
+      custBought.koujika = (custBought.koujika || 0) + 9;
+      log.push({ t: "sale", cid: "koujika", big: true, nineBuy: true, tap: true,
+        line: NINE_BUY[0], line2: NINE_BUY[1], itemId: rareId, price: total, qty: 9,
+        text: `好事家「${NINE_BUY[0]}」「${NINE_BUY[1]}」— ${SPECIMENS[rareId].icon} ${SPECIMENS[rareId].name}を9点、${total}G で購入。` });
+    }
+  }
+
+  // 開店の夜(新規1日目・最初の客の学生): 一度きりの専用イベントカード(購入なし・タップ送り)
+  let openingTonight = false;
+  if (!nineBuy && g.day === 1 && !g.openingNightDone) {
+    openingTonight = true;
+    log.push({ t: "misc", cid: "gakusei", tap: true,
+      line: OPENING_NIGHT[0], line2: OPENING_NIGHT[1], line3: OPENING_NIGHT[2],
+      text: `学生「${OPENING_NIGHT[0]}」「${OPENING_NIGHT[1]}」「${OPENING_NIGHT[2]}」` });
+  }
+
   // 貴婦人の噂: 店買い取り当日の夜、開店直後の1人目を貴婦人に固定(抽選外・未解禁でも登場)。
   // 演出(セリフ列)はUI側の全面カード送りで見せ、ここでは通常の買い物挙動に合流させる。
   let kifujinRumor = false;
-  if (g.ownShop && g.buyoutDay != null && g.day === g.buyoutDay && !g.kifujinRumorDone) {
+  if (!nineBuy && g.ownShop && g.buyoutDay != null && g.day === g.buyoutDay && !g.kifujinRumorDone) {
     kifujinRumor = true;
     const kf = CUSTOMERS.find((c) => c.id === "kifujin");
     if (kf) serveCustomer(kf);
@@ -381,7 +428,7 @@ function simulateNight(g) {
   // (累計販売が閾値に達し、棚に商品が1点以上ある夜。棚が空の夜は持ち越し)
   {
     const gslots = shelf.map((id, i) => ({ id, i })).filter((s) => s.id && !isWorm(s.id) && s.i < g.shelfSize);
-    if (!graduated && (custBought.gakusei || 0) >= GAKUSEI_GRAD.threshold && gslots.length) {
+    if (!nineBuy && !graduated && (custBought.gakusei || 0) >= GAKUSEI_GRAD.threshold && gslots.length) {
       graduated = true;
       graduatedTonight = true;
       let target = gslots[0];
@@ -401,9 +448,9 @@ function simulateNight(g) {
       });
     }
   }
-  // 同一客層の3連続を避けるため、直近に来た客層を控える
+  // 同一客層の3連続を避けるため、直近に来た客層を控える。九枠買いの夜は通常客を呼ばない(店じまい)
   const recent = [];
-  for (let v = 0; v < visitors; v++) {
+  for (let v = 0; !nineBuy && v < visitors; v++) {
     let c = weightedPick(pool);
     // 直前2組と同一客層なら1回だけ再抽選(他客層がプールにある場合のみ。序盤の学生オンリーは対象外)
     if (recent.length >= 2 && recent[recent.length - 1] === c.id && recent[recent.length - 2] === c.id
@@ -411,8 +458,8 @@ function simulateNight(g) {
       c = weightedPick(pool);
     }
     recent.push(c.id);
-    // 就職イベントの起きた夜、以降の学生の抽選は無効にする(再抽選しない=その枠は空振り)
-    if (c.id === "gakusei" && graduatedTonight) continue;
+    // 就職・開店の夜イベントの起きた夜、以降の学生の抽選は無効にする(再抽選しない=その枠は空振り)
+    if (c.id === "gakusei" && (graduatedTonight || openingTonight)) continue;
     // 買い取り当日の夜(貴婦人の噂演出より後の客)以降、対象客層の初購入で祝いセリフを1回だけ差し込む。
     // 貴婦人は抽選外で先に応対済みなので、この抽選ループの客はすべて「噂より後」に当たる。
     const celebrateLine = (g.ownShop && g.buyoutDay != null && g.day >= g.buyoutDay
@@ -534,7 +581,7 @@ function simulateNight(g) {
     let line = null, narr = null, payLabel, text;
     if (rent > (g.lastRent != null ? g.lastRent : RENT)) {
       line = rent >= 200 ? OOYA.raise200 : OOYA.raise150;
-      payLabel = `家賃 ${rent}G に`;
+      payLabel = `家賃 ${rent}G`;
       text = `大家「${line}」— 家賃は ${rent}G になった。`;
     } else if (cash < rent) {
       line = OOYA.broke;
@@ -574,7 +621,7 @@ function simulateNight(g) {
   return { log, gold, rep, sold, rentLog, rentPaid, wageText, shelf, spec, soldByCat, custBought, offer,
     gakuseiGraduated: graduated, swampUnlocked,
     camphor, mushiFirstDone, mushiFirstNight, mushiMorning, mushiSold, anaAlias,
-    celebrated, kifujinRumor };
+    celebrated, kifujinRumor, openingTonight, nineBuy };
 }
 
 // ---------- 画像 ----------
@@ -986,6 +1033,8 @@ export default function BoneAndGlass() {
       mushiSold: res.mushiSold, anaAlias: res.anaAlias,
       celebrated: res.celebrated,
       kifujinRumorDone: g.kifujinRumorDone || res.kifujinRumor,
+      openingNightDone: g.openingNightDone || res.openingTonight,
+      nineBuyDone: g.nineBuyDone || res.nineBuy,
     });
     setNightView({ idx: 0, sub: 1, collapsed: false });
     // 貴婦人の噂: 開店直後、全面のタップ送り演出を挟む(演出後は通常の営業カードへ)
@@ -1043,22 +1092,29 @@ export default function BoneAndGlass() {
   const advanceDay = (extra = {}) => {
     const src = { ...g, ...extra };
     const day = src.day + 1;
-    // 特注: 期限切れ判定(納期を過ぎた朝に消滅・評判-2)。放置された手紙は翌朝に流れる(無ペナルティ)
-    let order = src.order, rep = src.rep, orderExpired = false, letter = null;
-    if (order && day > order.dueDay) { order = null; rep = Math.max(0, rep - 2); orderExpired = true; }
+    // 特注: 期限切れ判定(無断すっぽかし)。評判-4、かつ依頼人のcustBought -3(下限0)。ログは従来の一行のまま
+    let order = src.order, rep = src.rep, orderExpired = false, letter = null, custBought = src.custBought;
+    if (order && day > order.dueDay) {
+      custBought = { ...custBought, [order.client]: Math.max(0, (custBought[order.client] || 0) - 3) };
+      rep = Math.max(0, rep - 4);
+      order = null; orderExpired = true;
+    }
     // 依頼を受けていない朝は、確率で手紙が1通届く(解禁評判以上・該当プールがあるとき)
     if (!order && rep >= ORDER_UNLOCK_REP && Math.random() < ORDER_CHANCE) letter = rollOrderLetter({ ...src, rep });
     // 見習いの押しかけ: 評判20到達の翌朝、一度だけイベント行を出し見習い欄を解禁
     const apprenticeMorning = !src.apprenticeSeen && rep >= 20;
     // 万象堂: 花籠完成の翌朝、通り名を得て冒頭ログを出す(一度きり)
     const banshoMorning = src.hanakagoState === "done" && !src.banshoAlias;
+    // エンディング: 図鑑コンプ達成後、3〜5日後の夜を発生日として一度だけ確定(以後は減らない)
+    let edFireDay = src.edFireDay;
+    if (edFireDay == null && !src.endingDone && specComp(src.known)) edFireDay = day + 2 + rnd(3);
     const ng = {
       ...src, day, phase: "morning", ap: MAX_AP + (src.apprentice ? 1 : 0),
       nightLog: [], nightRent: null, craftLog: [], offer: null, offerResult: null,
       collectorCd: Math.max(0, (src.collectorCd || 0) - 1),
       // 信頼は負のときだけ毎朝+0.5ずつ0へ回復(正の値は減衰しない)
       trust: (src.trust || 0) < 0 ? Math.min(0, (src.trust || 0) + 0.5) : (src.trust || 0),
-      order, rep, letter, orderExpired,
+      order, rep, letter, orderExpired, custBought, edFireDay,
       apprenticeMorning, apprenticeSeen: src.apprenticeSeen || apprenticeMorning,
       banshoMorning, banshoAlias: src.banshoAlias || banshoMorning,
     };
@@ -1234,7 +1290,12 @@ export default function BoneAndGlass() {
   const nightInSteps = g.phase === "night" && !nightView.collapsed && nightView.idx < nightSteps.length;
   const curStep = nightSteps[nightView.idx];
   // 多段カード(蟲屋初回の三段)は line3 があるものだけタップ送り
-  const stepMaxSub = (s) => (s && s.l && s.l.line3 ? 3 : 1);
+  // タップ送りカードの段数: line3付き(蟲屋初回・開店の夜)または tap指定(九枠買い)で 2〜3段
+  const stepMaxSub = (s) => {
+    if (!s || !s.l) return 1;
+    const n = [s.l.line, s.l.line2, s.l.line3].filter(Boolean).length;
+    return (s.l.line3 || s.l.tap) && n > 1 ? n : 1;
+  };
   // 売上累計(これまでのステップの sale を合算)
   const nightEarnSoFar = nightSteps.slice(0, nightView.idx + 1)
     .filter((s) => s.l && s.l.t === "sale").reduce((n, s) => n + (s.l.price || 0), 0);
@@ -1247,8 +1308,8 @@ export default function BoneAndGlass() {
   const moonOffset = moonOpenLine ? 1 : 0;
   const custSeen = Math.max(0, Math.min(custCards.length, nightView.idx - moonOffset));
   const foldedCards = [...custCards.slice(custSeen), ...(rentCard ? [rentCard] : [])];
-  // 一度きりのイベントカード(就職=grad / 蟲屋初回=line3)は「まとめる」でも潰さず個別カードで残す
-  const isEventCard = (l) => !!l.grad || !!l.line3;
+  // 一度きりのイベントカード(就職=grad / 蟲屋初回=line3 / 開店の夜・九枠買い=tap)は「まとめる」でも潰さず個別カードで残す
+  const isEventCard = (l) => !!l.grad || !!l.line3 || !!l.tap;
   const foldedEvents = foldedCards.filter(isEventCard);
   const foldedNormals = foldedCards.filter((l) => !isEventCard(l));
   // 現行の一覧ログ形式(まとめ表示・サマリで使う)
@@ -1270,11 +1331,11 @@ export default function BoneAndGlass() {
   const nightCardPanel = (l, revealSub = 99) => {
     const cust = CUSTOMERS.find((c) => c.id === l.cid);
     const custName = cust ? cust.name : (l.cid === "mushiya" ? MUSHIYA.name : l.cid === "ooya" ? OOYA.name : "");
-    const tap = !!l.line3; // 三段タップ送りカード(蟲屋初回)か
-    const show2 = revealSub >= 2, show3 = revealSub >= 3;
-    const showSaleRow = l.t === "sale" && (tap ? show2 : true);
-    // 入れ替え式(タップ送り)の一言: 現在のサブだけを見せ、前の言葉は画面に溜めない
-    const tapLine = show3 ? l.line3 : show2 ? l.line2 : l.line;
+    // タップ送りカード(蟲屋初回・開店の夜=3行 / 九枠買い=2行)。入れ替え式で現在の一言だけ見せる
+    const lineArr = [l.line, l.line2, l.line3].filter(Boolean);
+    const tap = (l.line3 || l.tap) && lineArr.length > 1;
+    const showSaleRow = l.t === "sale" && (tap ? revealSub >= lineArr.length : true);
+    const tapLine = lineArr[Math.min(revealSub, lineArr.length) - 1];
     return (
       <Panel style={{
         position: "relative",
@@ -1861,7 +1922,7 @@ export default function BoneAndGlass() {
                     {s.t === "moon" ? moonBeatPanel(moonOpenLine)
                       : s.t === "divider" ? <Panel style={{ animation: FADE }}>{nightBeatPanel("——閉店後。")}</Panel>
                       : s.t === "month" ? monthPanel()
-                      : nightCardPanel(s.l, s.l && s.l.line3 ? nightView.sub : 99)}
+                      : nightCardPanel(s.l, s.l && (s.l.line3 || s.l.tap) ? nightView.sub : 99)}
                   </div>
                   <div style={{ display: "flex", gap: 8 }}>
                     {canFold && <Btn onClick={nightCollapse} style={{ fontSize: 12 }}>残りをまとめる</Btn>}
@@ -2050,6 +2111,14 @@ export default function BoneAndGlass() {
                 <div style={{ letterSpacing: "0.25em", color: C.brass, fontSize: 13 }}>調度屋 — 店の誂え</div>
                 <button onClick={() => setShowDecor(false)} style={{ background: "none", border: "none", color: C.dim, cursor: "pointer", fontFamily: "inherit" }}>閉じる</button>
               </div>
+              {/* 見出し直下の帯画像(採集地背景と同様のトリム・スクエア)。画像がなければ現状のまま */}
+              {fileImgs && fileImgs.misc && fileImgs.misc.choudoya && (
+                <div style={{ overflow: "hidden", background: "#0e0b08", marginTop: 8 }}>
+                  <div style={{ aspectRatio: "16 / 7", overflow: "hidden" }}>
+                    <img src={fileImgs.misc.choudoya} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", transform: `scale(${FILE_ZOOM.site})` }} />
+                  </div>
+                </div>
+              )}
               <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
                 {SHELF_EXPAND[g.shelfSize + 1] && (
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -2260,18 +2329,38 @@ export default function BoneAndGlass() {
         const def = SCENES[scene.id];
         const seg = def.seq[scene.step];
         const custName = def.cid === "kifujin" ? "貴婦人" : def.cid === "ooya" ? OOYA.name : def.cid === "collector" ? COLLECTOR.name : "";
-        // 肖像は cid があるときのみ。portraitFrom 以降のステップで初めて出す(蒐集家の夜の大ビネット初出)
-        const showPortrait = def.cid && scene.step >= (def.portraitFrom || 0);
+        // 画像セグメント(月の独白と同じ「画像+地の文」様式)。画像が無ければ文字のみにフォールバック
+        let imgUrl = null, imgZoom = 1;
+        if (seg.img) {
+          if (seg.img.kind === "op") { imgUrl = fileImgs && fileImgs.op && fileImgs.op[seg.img.id]; imgZoom = FILE_ZOOM.op; }
+          else if (seg.img.kind === "spec") { imgUrl = fileImgs && fileImgs.specimens && fileImgs.specimens[seg.img.id]; imgZoom = specTrim(seg.img.id); }
+        }
+        // 肖像は画像セグメント以外・cidがある・portraitFrom以降で初めて出す(蒐集家の夜の大ビネット初出)
+        const showPortrait = !seg.img && def.cid && scene.step >= (def.portraitFrom || 0);
         return (
           <div onClick={advanceScene} style={{ position: "fixed", inset: 0, background: "rgba(10,8,6,0.96)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 28, zIndex: 70, cursor: "pointer" }}>
-            {showPortrait && (
-              <div key="portrait" style={{ width: "58%", maxWidth: 260, animation: FADE }}>
-                <FramedPortrait cid={def.cid} imgs={imgs} fileImgs={fileImgs} width="100%" />
+            {seg.img && imgUrl ? (
+              // 画像+地の文カード(月の独白様式・フェード)
+              <div key={"img" + scene.step} style={{ width: "100%", maxWidth: 400, border: `1px solid ${C.brass}`, overflow: "hidden", background: C.panel, boxShadow: "0 0 14px rgba(201,161,94,0.12)", animation: FADE }}>
+                <div style={{ aspectRatio: "16 / 9", overflow: "hidden", background: "#0e0b08" }}>
+                  <img src={imgUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", transform: `scale(${imgZoom})` }} />
+                </div>
+                <div style={{ padding: "16px 16px 18px", textAlign: "center" }}>
+                  <div style={{ fontSize: 14, color: C.dim, lineHeight: 2, letterSpacing: "0.08em" }}>{seg.text}</div>
+                </div>
               </div>
+            ) : (
+              <>
+                {showPortrait && (
+                  <div key="portrait" style={{ width: "58%", maxWidth: 260, animation: FADE }}>
+                    <FramedPortrait cid={def.cid} imgs={imgs} fileImgs={fileImgs} width="100%" />
+                  </div>
+                )}
+                <div key={scene.step} style={{ marginTop: 26, minHeight: 92, maxWidth: 340, textAlign: "center", fontSize: 14, lineHeight: 2.1, color: seg.t === "line" ? C.ivory : C.dim, letterSpacing: seg.t === "beat" ? "0.08em" : "normal", animation: FADE }}>
+                  {seg.t === "line" ? `${custName}「${seg.text}」` : seg.text}
+                </div>
+              </>
             )}
-            <div key={scene.step} style={{ marginTop: 26, minHeight: 92, maxWidth: 340, textAlign: "center", fontSize: 14, lineHeight: 2.1, color: seg.t === "line" ? C.ivory : C.dim, letterSpacing: seg.t === "beat" ? "0.08em" : "normal", animation: FADE }}>
-              {seg.t === "line" ? `${custName}「${seg.text}」` : seg.text}
-            </div>
             <div style={{ marginTop: 14, fontSize: 11, color: "#5a4f3d" }}>▼</div>
           </div>
         );

@@ -185,7 +185,10 @@ export const PROCESSES = {
   assemble: { name: "組立",     desc: "台座の上に骨を組み上げる", needs: "daiza" },
 };
 // 熟練の累計しきい値(Lv2/Lv3/Lv4)。様子見前提でここ一箇所で調整する。
-export const PROC_LV_EXP = [4, 12, 25];
+// v8.2: [4,12,25]→[6,15,25]。Lv2到達を約1週間の仕事量にし、序盤を修行期間にする。
+export const PROC_LV_EXP = [6, 15, 25];
+// 旧カーブ(migrateでLvが下がらない保護に使う。既存セーブは全てこの値で作られている)
+export const PROC_LV_EXP_LEGACY = [4, 12, 25];
 export const procLevel = (exp) => PROC_LV_EXP.reduce((lv, th) => (exp >= th ? lv + 1 : lv), 1);
 
 // ---------- レシピ (minLv: 必要熟練) ----------
@@ -198,11 +201,11 @@ export const RECIPES = [
   { id: "r06", from: "s_kabuto",    proc: "frame",    to: "s_kabutogaku" },
   { id: "r07", from: "koke",        proc: "preserve", to: "s_terra" },
   { id: "r08", from: "sakana",      proc: "preserve", to: "s_gyoshin" },
-  { id: "r09", from: "kurage",      proc: "preserve", to: "s_kuragebin" },
+  { id: "r09", from: "kurage",      proc: "preserve", to: "s_kuragebin",  minLv: 2 },
   { id: "r10", from: "kai",         proc: "polish",   to: "s_kaimigaki" },
   { id: "r11", from: "kani",        proc: "dry",      to: "s_kani" },
-  { id: "r12", from: "koumori",     proc: "boil",     to: "s_koumori" },
-  { id: "r13", from: "hebi",        proc: "preserve", to: "s_hebibin" },
+  { id: "r12", from: "koumori",     proc: "boil",     to: "s_koumori",    minLv: 2 },
+  { id: "r13", from: "hebi",        proc: "preserve", to: "s_hebibin",    minLv: 2 },
   { id: "r14", from: "hebi",        proc: "boil",     to: "s_hebikotsu" },
   { id: "r15", from: "suisho",      proc: "polish",   to: "s_suisho" },
   { id: "r16", from: "ammo",        proc: "polish",   to: "s_ammo" },

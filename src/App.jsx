@@ -139,7 +139,9 @@ function newGame() {
 }
 const clampTrust = (t) => Math.max(-6, Math.min(6, t));
 // 家賃の段階化: 開店前(その日の朝時点)の評判で判定。大家は先週までの噂を聞いて来る
-const rentFor = (rep) => (rep >= 40 ? 400 : rep >= 20 ? 350 : RENT);
+// 家賃の段階化(v8.5: 大家の強欲)。初回300(据え置き)→ 評判40で600 → 評判60で800。
+// 事務的な値上げではなく、店の羽振りを見て吹っかけてくる額(調度・買い取りへの圧)。
+const rentFor = (rep) => (rep >= 60 ? 800 : rep >= 40 ? 600 : RENT);
 // v1セーブの取り込み(exportは検証スクリプト用。ゲーム内の挙動は不変)
 export function migrate(loaded) {
   const base = newGame();
@@ -859,7 +861,7 @@ export function simulateNight(g) {
     // 家賃回収は客と同じカードに昇格。line=大家のセリフ / narr=セリフなしの地の文 / payLabel=支払額 / text=まとめ時の一行
     let line = null, narr = null, payLabel, text;
     if (rent > (g.lastRent != null ? g.lastRent : RENT)) {
-      line = rent >= 400 ? OOYA.raise200 : OOYA.raise150;
+      line = rent >= 800 ? OOYA.raise200 : OOYA.raise150; // 最上段(800)だけ強い文言・それ以外は控えめ
       payLabel = `家賃 ${rent}G`;
       text = `大家「${line}」— 家賃は ${rent}G になった。`;
     } else if (cash < rent) {

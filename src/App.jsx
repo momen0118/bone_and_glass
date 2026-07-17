@@ -24,6 +24,8 @@ import {
   RENT, RENT_INTERVAL, MAX_AP,
   OUTBREAK_CHANCE, OUTBREAK_MULT, outbreakLine,
   ORDER_BIG_CHANCE, ORDER_BIG_TERM, ORDER_BIG_ITEMS,
+  APPRENTICE_PROMOTE, APPRENTICE_DAYS_TOTAL, APPRENTICE_DAYS_POSTCLEAR,
+  APPRENTICE_WAGE, ARTISAN_WAGE, APPRENTICE_AP, ARTISAN_AP,
 } from "./data.js";
 import { storage } from "./storage.js";
 import { loadFileImages, FILE_ZOOM, specTrim, portraitFrame, portraitVignette } from "./images.js";
@@ -126,6 +128,10 @@ function newGame() {
     apprenticeOffStreak: 0,   // 見習いを連続で休ませている日数(解禁後・雇った日で0に戻る)
     // --- v8.3: それからの店(クリア後の日常) ---
     outbreak: null,           // その日の大発生 { site, mat }(クリア後・毎朝抽選・翌朝リセット)
+    apprenticeArtisan: false, // 見習い→職人への昇格を済ませたか
+    apprenticeDaysTotal: 0,   // 通算の雇用日数(雇っていた日を数える)
+    apprenticeDaysPostClear: 0, // クリア後の雇用日数
+    apprenticePromoteMorning: false, // その朝に昇格イベント行を出すか(翌朝クリア)
   };
 }
 const clampTrust = (t) => Math.max(-6, Math.min(6, t));
@@ -229,8 +235,12 @@ export function migrate(loaded) {
   g.lastOrderMissDay = typeof loaded.lastOrderMissDay === "number" ? loaded.lastOrderMissDay : null;
   g.orderDoneTotal = loaded.orderDoneTotal || 0;
   g.apprenticeOffStreak = loaded.apprenticeOffStreak || 0;
-  // v8.3: 大発生は保存しない(毎朝抽選)
+  // v8.3: 大発生は保存しない(毎朝抽選)。見習いの昇格・雇用日数は記録済み分から(遡らない)。
   g.outbreak = loaded.outbreak || null;
+  g.apprenticeArtisan = !!loaded.apprenticeArtisan;
+  g.apprenticeDaysTotal = loaded.apprenticeDaysTotal || 0;
+  g.apprenticeDaysPostClear = loaded.apprenticeDaysPostClear || 0;
+  g.apprenticePromoteMorning = !!loaded.apprenticePromoteMorning;
   // 買い取り済みの旧セーブ: 翌日を「買い取り当日」とみなしてイベント列を開始する
   g.buyoutDay = typeof loaded.buyoutDay === "number" ? loaded.buyoutDay
     : (g.ownShop && !g.kifujinRumorDone ? g.day + 1 : null);
@@ -249,6 +259,10 @@ function endingReady(g) {
 }
 // 最安の採集費(蟹の救済の発火判定に使う)
 const CHEAPEST_GATHER = Math.min(...SITES.map((s) => s.cost));
+// 見習い/職人の作業補正・日当・呼称(昇格 apprenticeArtisan で切り替わる)
+const apBonus = (g) => (g.apprentice ? (g.apprenticeArtisan ? ARTISAN_AP : APPRENTICE_AP) : 0);
+const helperName = (g) => (g.apprenticeArtisan ? "職人" : "見習い");
+const helperWage = (g) => (g.apprenticeArtisan ? ARTISAN_WAGE : APPRENTICE_WAGE);
 // 採集地の解禁判定(朝の一覧・大発生の抽選で共通に使う)
 const siteUnlocked = (g, s) =>
   s.id === "shitsugen" ? g.swampUnlocked
@@ -476,7 +490,7 @@ export function simulateNight(g) {
     g7: () => (g.orderMissTotal || 0) >= 1 && g.lastOrderMissDay != null && g.day - g.lastOrderMissDay <= 30,
     g8: () => g.supplyBigDay != null && g.day > g.supplyBigDay && g.day <= g.supplyBigDay + 3,
     // 今夜も休みなら「直近7日すべて休ませている」が成立する(過去6日+今夜で7日)
-    g9: () => g.apprenticeSeen && !g.apprentice && (g.apprenticeOffStreak || 0) >= 6,
+    g9: () => g.apprenticeSeen && !g.apprenticeArtisan && !g.apprentice && (g.apprenticeOffStreak || 0) >= 6,
     g10: () => (g.orderDoneTotal || 0) >= 5 && (g.lastOrderMissDay == null || g.day - g.lastOrderMissDay > 30),
   };
   // セリフ表示の直前判定。3%で、その話者が言えるうわさから1本(7日抑制中は除く)。無ければ null
@@ -806,7 +820,7 @@ export function simulateNight(g) {
 
   // 見習いの日当
   let wageText = null;
-  if (g.apprentice) { gold -= 70; wageText = "見習いに日当 70G を払った。"; }
+  if (g.apprentice) { const w = helperWage(g); gold -= w; wageText = `${helperName(g)}に日当 ${w}G を払った。`; }
 
   // 蒐集家の来訪判定(trustが負のときのみ出現率が減衰。正でも上げない)。
   // エンディングの夜は通常の蒐集家来訪をスキップ(万象の夜の演出が単独で出る)
@@ -1294,7 +1308,7 @@ export default function BoneAndGlass() {
   const toggleApprentice = () => {
     const hire = !g.apprentice;
     const firstHire = hire && !g.apprenticeHiredOnce;
-    setG({ ...g, apprentice: hire, ap: MAX_AP + (hire ? 1 : 0), apprenticeHiredOnce: g.apprenticeHiredOnce || hire });
+    setG({ ...g, apprentice: hire, ap: MAX_AP + (hire ? apBonus({ ...g, apprentice: true }) : 0), apprenticeHiredOnce: g.apprenticeHiredOnce || hire });
     if (firstHire) flash(APPRENTICE_HIRE_FIRST); // 初めて雇った瞬間の若者(一度きり)
   };
 
@@ -1329,6 +1343,18 @@ export default function BoneAndGlass() {
     // エンディング: 図鑑コンプ達成後、翌日の夜を発生日として一度だけ確定(以後は減らない)
     let edFireDay = src.edFireDay;
     if (edFireDay == null && !src.endingDone && specComp(src.known)) edFireDay = day + 1;
+    // v8.3: 見習いの雇用日数を数える(直前の一日=src.dayで雇っていたか)。
+    // 通算20日 かつ クリア後10日 の両方を満たした翌朝に一度だけ昇格する。
+    let apprenticeDaysTotal = src.apprenticeDaysTotal || 0;
+    let apprenticeDaysPostClear = src.apprenticeDaysPostClear || 0;
+    if (src.apprentice) {
+      apprenticeDaysTotal += 1;
+      if (src.endingDone) apprenticeDaysPostClear += 1;
+    }
+    let apprenticeArtisan = src.apprenticeArtisan, apprenticePromoteMorning = false;
+    if (!apprenticeArtisan && apprenticeDaysTotal >= APPRENTICE_DAYS_TOTAL && apprenticeDaysPostClear >= APPRENTICE_DAYS_POSTCLEAR) {
+      apprenticeArtisan = true; apprenticePromoteMorning = true;
+    }
     // 蟹の救済(詰み防止・一度きり): 朝の開始時点で金欠・仕立て可能な組み合わせが皆無・
     // 学生に売れる完成在庫(標準値付けで150G以下・虫食い除く)も無いなら倉庫に蟹の亡骸を1つ置く
     let kaniRescue = false, rescueInv = src.inv;
@@ -1337,7 +1363,7 @@ export default function BoneAndGlass() {
       rescueInv = { ...src.inv, kani: (src.inv.kani || 0) + 1 };
     }
     const ng = {
-      ...src, day, phase: "morning", ap: MAX_AP + (src.apprentice ? 1 : 0),
+      ...src, day, phase: "morning", ap: MAX_AP + (src.apprentice ? (apprenticeArtisan ? ARTISAN_AP : APPRENTICE_AP) : 0),
       nightLog: [], nightRent: null, craftLog: [], offer: null, offerResult: null,
       collectorCd: Math.max(0, (src.collectorCd || 0) - 1),
       // 信頼は負のときだけ毎朝+0.5ずつ0へ回復(正の値は減衰しない)
@@ -1354,6 +1380,8 @@ export default function BoneAndGlass() {
       apprenticeOffStreak: src.apprenticeSeen && !src.apprentice ? (src.apprenticeOffStreak || 0) + 1 : 0,
       // v8.3: 大発生(クリア後・毎朝抽選・翌朝リセット)
       outbreak: rollOutbreak(src),
+      // v8.3: 見習いの昇格(雇用日数・昇格フラグ・当朝のイベント行)
+      apprenticeArtisan, apprenticeDaysTotal, apprenticeDaysPostClear, apprenticePromoteMorning,
     };
     // 大家の依頼: 4品すべて倉庫に揃った朝は自動で開く。揃っていなければ畳む。
     setOoyaCardOpen(ooyaOrderReady(ng));
@@ -1745,6 +1773,12 @@ export default function BoneAndGlass() {
                 <span>{BANSHO.morning}</span>
               </div>
             )}
+            {g.apprenticePromoteMorning && (
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13, lineHeight: 1.9, color: C.brass, borderLeft: `2px solid ${C.brass}`, paddingLeft: 8 }}>
+                <Portrait cid="wakate" imgs={imgs} fileImgs={fileImgs} size={30} />
+                <span>{APPRENTICE_PROMOTE}</span>
+              </div>
+            )}
             {g.mushiMorning && (
               <div style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13, lineHeight: 1.8, color: C.red, borderLeft: `2px solid ${C.red}`, paddingLeft: 8 }}>
                 <span style={{ fontSize: 16 }}>🐛</span>
@@ -1925,18 +1959,21 @@ export default function BoneAndGlass() {
                 )}
               </div>
             </div>
-            {/* 見習い: 枠なし+罫線一本 */}
-            {g.rep >= 20 && (
-              <div style={{ borderTop: `1px solid ${C.line}`, paddingTop: 12, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                <div>
-                  <div style={{ fontSize: 15 }}>見習い <span style={{ fontSize: 11, color: C.dim }}>日当70G</span></div>
-                  <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>
-                    {g.apprentice ? "見習いは朝から工房にいる(作業+1)" : "雇えば朝から工房に立つ(作業+1)"}
+            {/* 見習い(昇格後は職人): 枠なし+罫線一本。呼称・日当・作業補正は昇格で切り替わる */}
+            {g.rep >= 20 && (() => {
+              const nm = helperName(g), wage = helperWage(g), bonus = g.apprenticeArtisan ? ARTISAN_AP : APPRENTICE_AP;
+              return (
+                <div style={{ borderTop: `1px solid ${C.line}`, paddingTop: 12, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                  <div>
+                    <div style={{ fontSize: 15 }}>{nm} <span style={{ fontSize: 11, color: C.dim }}>日当{wage}G</span></div>
+                    <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>
+                      {g.apprentice ? `${nm}は朝から工房にいる(作業+${bonus})` : `雇えば朝から工房に立つ(作業+${bonus})`}
+                    </div>
                   </div>
+                  <Btn onClick={toggleApprentice} style={{ flexShrink: 0 }}>{g.apprentice ? "休ませる" : "雇う"}</Btn>
                 </div>
-                <Btn onClick={toggleApprentice} style={{ flexShrink: 0 }}>{g.apprentice ? "休ませる" : "雇う"}</Btn>
-              </div>
-            )}
+              );
+            })()}
           </div>
         )}
 
@@ -1945,7 +1982,7 @@ export default function BoneAndGlass() {
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div style={{ fontSize: 12, color: C.dim }}>素材を選んで、仕立て方を決める。</div>
-              <div style={{ fontSize: 13, color: C.brass }}>作業残り {"●".repeat(g.ap)}{"○".repeat(Math.max(0, MAX_AP + (g.apprentice ? 1 : 0) - g.ap))}</div>
+              <div style={{ fontSize: 13, color: C.brass }}>作業残り {"●".repeat(g.ap)}{"○".repeat(Math.max(0, MAX_AP + apBonus(g) - g.ap))}</div>
             </div>
 
             <Panel>
@@ -2496,7 +2533,7 @@ export default function BoneAndGlass() {
           {/* タイトルへの導線(全フェーズ)。文字色は一段薄く。記録は残す */}
           <Btn onClick={() => setToTitleConfirm(true)} style={{ ...FOOT_BTN, color: C.dim }}>タイトル</Btn>
           <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
-            {g.phase === "morning" && <Btn primary onClick={() => { setCaveEvent(null); setG({ ...g, phase: "workshop", mushiMorning: null, apprenticeMorning: false, banshoMorning: false }); }} style={FOOT_BTN}>工房へ →</Btn>}
+            {g.phase === "morning" && <Btn primary onClick={() => { setCaveEvent(null); setG({ ...g, phase: "workshop", mushiMorning: null, apprenticeMorning: false, banshoMorning: false, apprenticePromoteMorning: false }); }} style={FOOT_BTN}>工房へ →</Btn>}
             {g.phase === "workshop" && <Btn primary onClick={() => { setSel(null); setG({ ...g, phase: "shelf" }); }} style={FOOT_BTN}>陳列へ →</Btn>}
             {g.phase === "shelf" && (
               <>

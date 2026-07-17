@@ -649,6 +649,12 @@ export const OP = [
 export const APPRENTICE_INTRO = "人手が要る。……朝のうちに、貼り紙を出しておいた。";
 // 初めて「雇う」を実行した瞬間のトースト(一度きり)
 export const APPRENTICE_HIRE_FIRST = "そわそわした若者が、貼り紙を握りしめて立っていた。";
+// v8.3: 見習いの昇格(職人)。通算雇用20日 かつ クリア後雇用10日 の両方を満たした翌朝に一度きり。
+export const APPRENTICE_PROMOTE = "見習いの手つきが、いつの間にか様になっている。……もう、見習いと呼ぶのも失礼か。";
+export const APPRENTICE_DAYS_TOTAL = 20;     // 昇格に必要な通算雇用日数
+export const APPRENTICE_DAYS_POSTCLEAR = 10;  // 昇格に必要なクリア後の雇用日数
+export const APPRENTICE_WAGE = 70, ARTISAN_WAGE = 90; // 日当(見習い / 職人)
+export const APPRENTICE_AP = 1, ARTISAN_AP = 2;       // 作業補正(見習い / 職人)
 // 月次記録の所感(月数ベース。1・2・3ヶ月目、4ヶ月目以降)
 export const MONTH_REMARKS = [
   "気づけば、ひと月が経っていた。硝子は毎晩磨かれている。",

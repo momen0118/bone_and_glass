@@ -14,6 +14,7 @@ import {
   CUSTOMERS, COLLECTOR, OOYA, SHOP_BUYOUT, SETS, ALIASES, PRICE_MODES,
   GAKUSEI_KOUHAI_LINE, GAKUSEI_GRAD, SWAMP_UNLOCK, CAVE_UNLOCK, SPEC_LORE, LEDGER_LOST, LEDGER_TITLES,
   WORM, isWorm, wormId, baseId, WORM_CATS, specOf, CAMPHOR, mushiDiscover, MUSHIYA,
+  SAIKUSHI, SAIKUSHI_MINERALS,
   moonPhase, MOON_OPEN, MOON_BOOST, MOON_REPORT, KANI_RESCUE, ANA_ALIAS,
   ORDER_UNLOCK_REP, ORDER_CHANCE, ORDER_REWARD_MULT, ORDER_EXPIRED_LOG, ORDER_DECLINE,
   ORDER_CLIENTS, ORDER_FILTER, ORDER_LETTERS, ORDER_SITE_GATE, ORDER_RARE,
@@ -133,6 +134,7 @@ function newGame() {
     apprenticeDaysTotal: 0,   // 通算の雇用日数(雇っていた日を数える)
     apprenticeDaysPostClear: 0, // クリア後の雇用日数
     apprenticePromoteMorning: false, // その朝に昇格イベント行を出すか(翌朝クリア)
+    saikushiFirstDone: false,  // 細工師の初回イベント(三段セリフ)を消化したか
   };
 }
 const clampTrust = (t) => Math.max(-6, Math.min(6, t));
@@ -242,6 +244,7 @@ export function migrate(loaded) {
   g.apprenticeDaysTotal = loaded.apprenticeDaysTotal || 0;
   g.apprenticeDaysPostClear = loaded.apprenticeDaysPostClear || 0;
   g.apprenticePromoteMorning = !!loaded.apprenticePromoteMorning;
+  g.saikushiFirstDone = !!loaded.saikushiFirstDone; // 細工師の初回イベント消化フラグ
   // 買い取り済みの旧セーブ: 翌日を「買い取り当日」とみなしてイベント列を開始する
   g.buyoutDay = typeof loaded.buyoutDay === "number" ? loaded.buyoutDay
     : (g.ownShop && !g.kifujinRumorDone ? g.day + 1 : null);
@@ -370,7 +373,8 @@ function activeSets(shelf, size) {
   return res;
 }
 // 基準価(熟練Lv3・天鵞絨込み、棚補正なし)。虫食い品は元の50%(補正なし)
-function basePrice(g, specId) {
+// (exportは検証スクリプト用。ゲーム内の挙動は不変)
+export function basePrice(g, specId) {
   if (isWorm(specId)) return SPECIMENS[baseId(specId)].price * 0.5;
   let p = SPECIMENS[specId].price;
   const proc = SPEC_PROC[specId];
@@ -448,6 +452,9 @@ export function simulateNight(g) {
     + (phase === 4 ? 2 : 0) + (phase === 0 ? -2 : 0);
   visitors = Math.min(g.shelfSize + 2, Math.max(phase === 0 ? 1 : 0, visitors));
   const aliasCat = g.alias;
+  // 細工師の出現: クリア後、棚に鉱物が SAIKUSHI_MINERALS 点以上あれば来客抽選に weight 1 で混ざる
+  const mineralCount = shelf.slice(0, g.shelfSize).filter((id) => id && !isWorm(id) && SPECIMENS[id].cat === "mineral").length;
+  const saikushiEligible = g.endingDone && mineralCount >= SAIKUSHI_MINERALS;
   // 銘板の招き: 単数 invite / 複数 invites の両対応
   const setInvites = (c) => sets.some((s) => (s.invites ? s.invites.includes(c.id) : s.invite === c.id));
   const pool = CUSTOMERS.filter((c) => g.rep >= c.minRep && (!c.flag || g[c.flag])).map((c) => {
@@ -459,10 +466,13 @@ export function simulateNight(g) {
       c = { ...c, lines: { ...c.lines, buy: [...c.lines.buy, GAKUSEI_KOUHAI_LINE] } };
     return [c, w];
   });
+  // 細工師(クリア後・鉱物3点以上)を来客抽選に weight 1 で加える(挙動は serveCustomer で分岐)
+  if (saikushiEligible) pool.push([SAIKUSHI, 1]);
   let graduated = g.gakuseiGraduated;
   let graduatedTonight = false; // 就職イベントが起きた夜は学生を再抽選しない
   const celebrated = { ...g.celebrated }; // 買い取りの祝いセリフ(客層ごと1回)
   let rumorGiven = false; // 銘板の噂は一晩最大1回
+  let saikushiFirstDone = g.saikushiFirstDone; // 細工師の初回イベント(三段)消化フラグ
 
   // ---- うわさ(風聞): 一晩最大1回。銘板の噂ヒントとは同夜に両方出ない(ヒント優先) ----
   let gossipGiven = false;
@@ -550,6 +560,47 @@ export function simulateNight(g) {
   // 1人の客を応対する(棚・売上・評判・在庫を破壊的に更新し、ログを積む)。
   // opts.tag=ログに足す追加フィールド。戻り値 { bought }
   const serveCustomer = (c, opts = {}) => {
+    // 細工師: 鉱物だけを見る。最高の基準価の一点のみ、表示価格×1.3(値付け無効)で買う。
+    // 予算・下限なし。他分類は買わない・browseもしない。評判/販売数は通常客と同様に計上。
+    if (c.id === "saikushi") {
+      const bought = custBought[c.id] || 0;
+      const first = !saikushiFirstDone;
+      const minerals = shelf.map((id, i) => ({ id, i }))
+        .filter((s) => s.id && !isWorm(s.id) && s.i < g.shelfSize && SPECIMENS[s.id].cat === "mineral");
+      if (!minerals.length) {
+        // 石が無ければ買わずに帰る(初回イントロは石のある夜まで持ち越す=消化しない)
+        const line = pick(SAIKUSHI.pass);
+        log.push({ t: "misc", cid: c.id, text: `${SAIKUSHI.name}「${line}」`, line, ...(opts.tag || {}) });
+        return { bought: false };
+      }
+      // 基準価が最も高い一点(選り好み)。値付け倍率・隣接・銘板は見ない(石の質=基準価だけ)
+      let t = minerals[0];
+      for (const s of minerals) if (basePrice(g, s.id) > basePrice(g, t.id)) t = s;
+      const price = round5(basePrice(g, t.id) * SAIKUSHI.mult);
+      const sp = SPECIMENS[t.id];
+      shelf[t.i] = null;
+      gold += price; sold++;
+      soldByCat[sp.cat] = (soldByCat[sp.cat] || 0) + 1;
+      soldByItem[t.id] = (soldByItem[t.id] || 0) + 1;
+      soldByCust[c.id] = (soldByCust[c.id] || 0) + 1;
+      custBought[c.id] = bought + 1;
+      rep += 1 + (sp.tags.includes("rare") ? 1 : 0) + mode.repBonus;
+      const big = price >= 400;
+      if (first) {
+        // 初回: 三段セリフ(タップ送り)→ 購入カード
+        saikushiFirstDone = true;
+        log.push({ t: "sale", cid: c.id, big,
+          line: SAIKUSHI.first[0], line2: SAIKUSHI.first[1], line3: SAIKUSHI.first[2],
+          itemId: t.id, price,
+          text: `${SAIKUSHI.name}「${SAIKUSHI.first.join("」「")}」— ${sp.icon} ${sp.name}を ${price}G で購入。`,
+          ...(opts.tag || {}) });
+      } else {
+        const line = big ? pick(SAIKUSHI.big) : pick(SAIKUSHI.buy);
+        log.push({ t: "sale", cid: c.id, big, line, itemId: t.id, price,
+          text: `${SAIKUSHI.name}「${line}」— ${sp.icon} ${sp.name}を ${price}G で購入。`, ...(opts.tag || {}) });
+      }
+      return { bought: true };
+    }
     const bought = custBought[c.id] || 0;
     const slots = shelf.map((id, i) => ({ id, i })).filter((s) => s.id && !isWorm(s.id) && s.i < g.shelfSize);
     if (!slots.length) { log.push({ t: "misc", cid: c.id, text: `${c.name}が覗いたが、棚は空だった。`, line: null, ...(opts.tag || {}) }); return { bought: false }; }
@@ -856,7 +907,7 @@ export function simulateNight(g) {
     gakuseiGraduated: graduated, swampUnlocked,
     camphor, mushiFirstDone, mushiFirstNight, mushiMorning, mushiSold, anaAlias,
     celebrated, kifujinRumor, openingTonight, nineBuy, ooyaPreview,
-    gossipLast, noCamphorDays, strongNights };
+    gossipLast, noCamphorDays, strongNights, saikushiFirstDone };
 }
 
 // ============================================================
@@ -921,6 +972,7 @@ const portraitFallback = (cid) =>
   cid === "collector" ? COLLECTOR.icon
   : cid === "ooya" ? OOYA.icon
   : cid === "mushiya" ? MUSHIYA.icon
+  : cid === "saikushi" ? SAIKUSHI.icon
   : (CUSTOMERS.find((c) => c.id === cid) || {}).icon || "·";
 
 // 肖像: リポジトリ画像 → 画廊(アップロード) → 絵文字 の順
@@ -1264,6 +1316,7 @@ export default function BoneAndGlass() {
       nineBuyDone: g.nineBuyDone || res.nineBuy,
       ooyaPreviewDone: g.ooyaPreviewDone || res.ooyaPreview,
       gossipLast: res.gossipLast, noCamphorDays: res.noCamphorDays, strongNights: res.strongNights,
+      saikushiFirstDone: res.saikushiFirstDone,
     });
     setNightView({ idx: 0, sub: 1, collapsed: false });
     // 貴婦人の噂: 開店直後、全面のタップ送り演出を挟む(演出後は通常の営業カードへ)
@@ -1612,7 +1665,7 @@ export default function BoneAndGlass() {
   // 夜のカード(客・大家)。revealSub=何行目まで見せるか(蟲屋初回のタップ送り用。既定は全表示)
   const nightCardPanel = (l, revealSub = 99) => {
     const cust = CUSTOMERS.find((c) => c.id === l.cid);
-    const custName = cust ? cust.name : (l.cid === "mushiya" ? MUSHIYA.name : l.cid === "ooya" ? OOYA.name : "");
+    const custName = cust ? cust.name : (l.cid === "mushiya" ? MUSHIYA.name : l.cid === "ooya" ? OOYA.name : l.cid === "saikushi" ? SAIKUSHI.name : "");
     // タップ送りカード(蟲屋初回・開店の夜=3行 / 九枠買い=2行)。入れ替え式で現在の一言だけ見せる
     const lineArr = [l.line, l.line2, l.line3].filter(Boolean);
     const tap = (l.line3 || l.tap) && lineArr.length > 1;
@@ -2432,7 +2485,7 @@ export default function BoneAndGlass() {
           });
           const [topCust, topCustN] = maxEntry(custTally);
           const custTie = Object.values(custTally).filter((v) => v === topCustN).length > 1;
-          const custName = (id) => (CUSTOMERS.find((c) => c.id === id) || {}).name || "";
+          const custName = (id) => (id === "saikushi" ? SAIKUSHI.name : (CUSTOMERS.find((c) => c.id === id) || {}).name) || "";
           const months = [...(g.monthly || [])].reverse(); // 新しい順
           const tally = [
             ["一番売った品", topItem ? SPECIMENS[topItem].name : "──"],

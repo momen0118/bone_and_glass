@@ -19,6 +19,7 @@ import {
   ORDER_CLIENTS, ORDER_FILTER, ORDER_LETTERS, ORDER_SITE_GATE, ORDER_RARE,
   BUYOUT_CELEBRATE, SCENES, OOYA_ORDER,
   APPRENTICE_INTRO, APPRENTICE_HIRE_FIRST, MONTH_REMARKS, RUMORS, RUMOR_CHANCE, OP,
+  GOSSIP, GOSSIP_CHANCE, GOSSIP_SPEAKERS,
   HANAKAGO, BANSHO, OPENING_NIGHT, NINE_BUY,
   RENT, RENT_INTERVAL, MAX_AP,
 } from "./data.js";
@@ -109,13 +110,24 @@ function newGame() {
     soldByCust: {},           // 客層別の通算販売数(客ID → 数。soldByCatと同じ範囲を数える)
     bestMonthEarn: 0,         // 最高月商(月の締めで更新)
     historyLost: false,       // 旧セーブ引き継ぎ(帳簿に「記録は失われている」を出す)
+    // --- v8.1: うわさ(風聞)の条件追跡 ---
+    gossipLast: {},           // うわさ別の直近表示日(同じうわさの7日抑制)
+    noCamphorDays: [],        // 直近14日のうち樟脳切れだった晩(日番号。樟脳解禁後のみ記録)
+    strongNights: [],         // 直近14日のうち強気の値付けで開店した晩(日番号)
+    lastFurnishDay: 0,        // 調度・棚増設を最後に購入した日(未購入は開店前=0)
+    supplyBoughtToday: 0,     // その日の古物市で買った資材数(翌朝リセット)
+    supplyBigDay: null,       // 古物市で資材を合計10個以上買った日
+    orderMissTotal: 0,        // 特注のすっぽかし(期限切れ)の累計
+    lastOrderMissDay: null,   // 直近のすっぽかし日
+    orderDoneTotal: 0,        // 特注の達成の累計
+    apprenticeOffStreak: 0,   // 見習いを連続で休ませている日数(解禁後・雇った日で0に戻る)
   };
 }
 const clampTrust = (t) => Math.max(-6, Math.min(6, t));
 // 家賃の段階化: 開店前(その日の朝時点)の評判で判定。大家は先週までの噂を聞いて来る
 const rentFor = (rep) => (rep >= 40 ? 400 : rep >= 20 ? 350 : RENT);
-// v1セーブの取り込み
-function migrate(loaded) {
+// v1セーブの取り込み(exportは検証スクリプト用。ゲーム内の挙動は不変)
+export function migrate(loaded) {
   const base = newGame();
   const g = { ...base, ...loaded };
   if (!Array.isArray(g.shelf) || g.shelf.length < 9)
@@ -189,6 +201,17 @@ function migrate(loaded) {
   g.soldByItem = loaded.soldByItem || {};
   g.soldByCust = loaded.soldByCust || {};
   g.bestMonthEarn = loaded.bestMonthEarn || 0;
+  // v8.1: うわさの条件追跡。旧セーブは今日から数え始める(過去分は遡らない)
+  g.gossipLast = loaded.gossipLast || {};
+  g.noCamphorDays = loaded.noCamphorDays || [];
+  g.strongNights = loaded.strongNights || [];
+  g.lastFurnishDay = typeof loaded.lastFurnishDay === "number" ? loaded.lastFurnishDay : (loaded.day || 1);
+  g.supplyBoughtToday = loaded.supplyBoughtToday || 0;
+  g.supplyBigDay = typeof loaded.supplyBigDay === "number" ? loaded.supplyBigDay : null;
+  g.orderMissTotal = loaded.orderMissTotal || 0;
+  g.lastOrderMissDay = typeof loaded.lastOrderMissDay === "number" ? loaded.lastOrderMissDay : null;
+  g.orderDoneTotal = loaded.orderDoneTotal || 0;
+  g.apprenticeOffStreak = loaded.apprenticeOffStreak || 0;
   // 買い取り済みの旧セーブ: 翌日を「買い取り当日」とみなしてイベント列を開始する
   g.buyoutDay = typeof loaded.buyoutDay === "number" ? loaded.buyoutDay
     : (g.ownShop && !g.kifujinRumorDone ? g.day + 1 : null);
@@ -337,7 +360,8 @@ function custLine(c, bought, kind) {
 }
 
 // ---------- 夜の営業 ----------
-function simulateNight(g) {
+// (exportは検証スクリプト用。ゲーム内の挙動は不変)
+export function simulateNight(g) {
   const log = [];
   let gold = 0, rep = 0, sold = 0;
   const shelf = [...g.shelf];
@@ -371,6 +395,77 @@ function simulateNight(g) {
   const celebrated = { ...g.celebrated }; // 買い取りの祝いセリフ(客層ごと1回)
   let rumorGiven = false; // 銘板の噂は一晩最大1回
 
+  // ---- うわさ(風聞): 一晩最大1回。銘板の噂ヒントとは同夜に両方出ない(ヒント優先) ----
+  let gossipGiven = false;
+  const gossipLast = { ...(g.gossipLast || {}) };
+  // 直近14日の追跡(今夜の分を含めて評価し、そのまま保存値として返す)
+  const camphorOut = g.mushiFirstDone && (g.camphor || 0) <= 0; // 樟脳解禁後の樟脳切れの晩
+  const noCamphorDays = [...(g.noCamphorDays || []).filter((d) => d > g.day - 14 && d < g.day), ...(camphorOut ? [g.day] : [])];
+  const strongNights = [...(g.strongNights || []).filter((d) => d > g.day - 14 && d < g.day), ...(g.priceMode === "strong" ? [g.day] : [])];
+  // #5: soldByCat最多分類が全体の6割以上(その分類の通り名を獲得済みの間のみ)
+  const gossipTopCat = () => {
+    let best = null, bestN = 0, total = 0;
+    for (const [k, v] of Object.entries(soldByCat)) { total += v; if (v > bestN) { best = k; bestN = v; } }
+    return total > 0 && bestN >= total * 0.6 && g.aliasHistory.includes(best) ? best : null;
+  };
+  // #6: 客層別販売の最多客層が明確(4割以上・同数の並びなし)。若い研究者は学生に合算
+  const gossipTopCust = () => {
+    const t = {};
+    for (const [k, v] of Object.entries(soldByCust)) { const key = k === "wakate" ? "gakusei" : k; t[key] = (t[key] || 0) + v; }
+    let best = null, bestN = 0, tie = false, total = 0;
+    for (const [k, v] of Object.entries(t)) {
+      total += v;
+      if (v > bestN) { best = k; bestN = v; tie = false; }
+      else if (v === bestN && v > 0) tie = true;
+    }
+    return best && !tie && bestN >= total * 0.4 && GOSSIP_SPEAKERS.includes(best) ? best : null;
+  };
+  // 話者固定うわさの成立条件(条件を満たしている間だけ抽選対象)
+  const gossipConds = {
+    // 未購入の調度・棚増設が残っている × 30日間それらを購入していない × 所持金がその最安額の3倍以上
+    g1: () => {
+      const costs = DECOR.filter((d) => !g.decor[d.id]).map((d) => d.cost);
+      if (SHELF_EXPAND[g.shelfSize + 1]) costs.push(SHELF_EXPAND[g.shelfSize + 1]);
+      return costs.length > 0 && g.day - (g.lastFurnishDay || 0) >= 30 && g.gold >= Math.min(...costs) * 3;
+    },
+    g2: () => g.mushiFirstDone && noCamphorDays.length >= 7,
+    g3: () => strongNights.length >= 8,
+    g4: () => (g.mushiSold || 0) >= 5 && !g.anaAlias,
+    g7: () => (g.orderMissTotal || 0) >= 1 && g.lastOrderMissDay != null && g.day - g.lastOrderMissDay <= 30,
+    g8: () => g.supplyBigDay != null && g.day > g.supplyBigDay && g.day <= g.supplyBigDay + 3,
+    // 今夜も休みなら「直近7日すべて休ませている」が成立する(過去6日+今夜で7日)
+    g9: () => g.apprenticeSeen && !g.apprentice && (g.apprenticeOffStreak || 0) >= 6,
+    g10: () => (g.orderDoneTotal || 0) >= 5 && (g.lastOrderMissDay == null || g.day - g.lastOrderMissDay > 30),
+  };
+  // セリフ表示の直前判定。3%で、その話者が言えるうわさから1本(7日抑制中は除く)。無ければ null
+  const rollGossip = (c) => {
+    if (gossipGiven || rumorGiven || !GOSSIP_SPEAKERS.includes(c.id)) return null;
+    if (Math.random() >= GOSSIP_CHANCE) return null;
+    const fresh = (key) => !(gossipLast[key] && g.day - gossipLast[key] < 7);
+    const cands = [];
+    for (const [key, def] of Object.entries(GOSSIP)) {
+      if (key === "g6" || def.cid !== c.id || !fresh(key)) continue;
+      if (key === "g5") {
+        const cat = gossipTopCat();
+        if (cat) cands.push({ key, line: def.line(CAT_NAME[cat]) });
+      } else if (gossipConds[key]()) {
+        cands.push({ key, line: def.line });
+      }
+    }
+    if (fresh("g6")) {
+      const top = gossipTopCust();
+      if (top && top !== c.id) { // 最多客層本人は話者から除外
+        const nm = (CUSTOMERS.find((x) => x.id === top) || {}).name;
+        cands.push({ key: "g6", line: GOSSIP.g6.lines[c.id](nm) });
+      }
+    }
+    if (!cands.length) return null;
+    const hit = pick(cands);
+    gossipGiven = true;
+    gossipLast[hit.key] = g.day;
+    return hit.line;
+  };
+
   const priceAt = (i) => {
     let p = basePrice(g, shelf[i]) * mode.mult;
     if (adjBonus(shelf, i, g.shelfSize)) p *= 1.15;
@@ -390,7 +485,7 @@ function simulateNight(g) {
     const budget = c.id === "gakusei" && gardenActive ? Math.round(c.budget * 1.3) : c.budget;
     const afford = slots.filter((s) => priceAt(s.i) >= (c.floor || 0) && priceAt(s.i) <= budget);
     if (!afford.length) {
-      const line = custLine(c, bought, "poor");
+      const line = rollGossip(c) || custLine(c, bought, "poor");
       log.push({ t: "misc", cid: c.id, text: `${c.name}「${line}」`, line, ...(opts.tag || {}) });
       return { bought: false };
     }
@@ -417,13 +512,14 @@ function simulateNight(g) {
       custBought[c.id] = bought + 1;
       rep += 1 + (sp.tags.includes("rare") ? 1 : 0) + mode.repBonus;
       const big = price >= 400;
-      // 買い取りの祝い(翌日以降・購入成立時に1回だけ buyセリフを差し替える)
-      const line = opts.celebrateLine || (big ? custLine(c, bought, "big") : custLine(c, bought, "buy"));
+      // セリフの優先順: 買い取りの祝い(一度きり) > うわさ(3%) > 通常のbuy/bigセリフ
+      const line = opts.celebrateLine || rollGossip(c) || (big ? custLine(c, bought, "big") : custLine(c, bought, "buy"));
       log.push({ t: "sale", cid: c.id, big, text: `${c.name}「${line}」— ${sp.icon} ${sp.name}を ${price}G で購入。`, line, itemId: target.id, price, ...(opts.tag || {}) });
       return { bought: true };
     }
-    // 銘板の噂: passした客が、担当銘板のうち未発見のものがあれば 8% で噂を落とす(一晩1回)
-    if (!rumorGiven) {
+    // 銘板の噂: passした客が、担当銘板のうち未発見のものがあれば 8% で噂を落とす(一晩1回)。
+    // うわさとは同夜に両方出ない(ここが先に判定される=ヒント優先)
+    if (!rumorGiven && !gossipGiven) {
       const undiscovered = (RUMORS[c.id] || []).filter((r) => !g.knownSets.includes(r.set));
       if (undiscovered.length && Math.random() < RUMOR_CHANCE) {
         rumorGiven = true;
@@ -432,7 +528,7 @@ function simulateNight(g) {
         return { bought: false };
       }
     }
-    const line = custLine(c, bought, "pass");
+    const line = rollGossip(c) || custLine(c, bought, "pass");
     log.push({ t: "misc", cid: c.id, text: `${c.name}「${line}」`, line, ...(opts.tag || {}) });
     return { bought: false };
   };
@@ -688,7 +784,8 @@ function simulateNight(g) {
   return { log, gold, rep, sold, rentLog, rentPaid, wageText, shelf, spec, soldByCat, soldByItem, soldByCust, custBought, offer,
     gakuseiGraduated: graduated, swampUnlocked,
     camphor, mushiFirstDone, mushiFirstNight, mushiMorning, mushiSold, anaAlias,
-    celebrated, kifujinRumor, openingTonight, nineBuy, ooyaPreview };
+    celebrated, kifujinRumor, openingTonight, nineBuy, ooyaPreview,
+    gossipLast, noCamphorDays, strongNights };
 }
 
 // ---------- 画像 ----------
@@ -972,7 +1069,10 @@ export default function BoneAndGlass() {
     const total = s.cost * qty;
     if (g.gold < total) return flash("お金が足りない");
     const inv = { ...g.inv }; inv[s.id] = (inv[s.id] || 0) + qty;
-    setG({ ...g, gold: g.gold - total, inv });
+    // その日の資材購入数。合計10個に達した日を控える(うわさ#8)
+    const supplyBoughtToday = (g.supplyBoughtToday || 0) + qty;
+    setG({ ...g, gold: g.gold - total, inv, supplyBoughtToday,
+      supplyBigDay: supplyBoughtToday >= 10 ? g.day : g.supplyBigDay });
   };
   // 樟脳を買う(5晩分。所持は1個まで=残晩数があるうちは買えない)
   const buyCamphor = () => {
@@ -993,12 +1093,12 @@ export default function BoneAndGlass() {
     const next = g.shelfSize + 1, cost = SHELF_EXPAND[next];
     if (!cost) return;
     if (g.gold < cost) return flash("お金が足りない");
-    setG({ ...g, gold: g.gold - cost, shelfSize: next });
+    setG({ ...g, gold: g.gold - cost, shelfSize: next, lastFurnishDay: g.day });
     flash(`大工が棚を増やしてくれた(${next}枠)`);
   };
   const buyDecor = (d) => {
     if (g.decor[d.id] || g.gold < d.cost) return;
-    setG({ ...g, gold: g.gold - d.cost, decor: { ...g.decor, [d.id]: true } });
+    setG({ ...g, gold: g.gold - d.cost, decor: { ...g.decor, [d.id]: true }, lastFurnishDay: g.day });
     flash(`${d.name}を設えた`);
   };
   // 店の買い取り: 実行した瞬間、大家との専用イベント表示に切り替える
@@ -1105,6 +1205,7 @@ export default function BoneAndGlass() {
       openingNightDone: g.openingNightDone || res.openingTonight,
       nineBuyDone: g.nineBuyDone || res.nineBuy,
       ooyaPreviewDone: g.ooyaPreviewDone || res.ooyaPreview,
+      gossipLast: res.gossipLast, noCamphorDays: res.noCamphorDays, strongNights: res.strongNights,
     });
     setNightView({ idx: 0, sub: 1, collapsed: false });
     // 貴婦人の噂: 開店直後、全面のタップ送り演出を挟む(演出後は通常の営業カードへ)
@@ -1174,10 +1275,12 @@ export default function BoneAndGlass() {
     }
     // 特注: 期限切れ判定(無断すっぽかし)。評判-4、かつ依頼人のcustBought -3(下限0)。ログは従来の一行のまま
     let order = src.order, rep = src.rep, orderExpired = false, letter = null, custBought = src.custBought;
+    let orderMissTotal = src.orderMissTotal || 0, lastOrderMissDay = src.lastOrderMissDay;
     if (order && day > order.dueDay) {
       custBought = { ...custBought, [order.client]: Math.max(0, (custBought[order.client] || 0) - 3) };
       rep = Math.max(0, rep - 4);
       order = null; orderExpired = true;
+      orderMissTotal += 1; lastOrderMissDay = day; // すっぽかしの記録(うわさ#7・#10)
     }
     // 依頼を受けていない朝は、確率で手紙が1通届く(解禁評判以上・該当プールがあるとき)
     if (!order && rep >= ORDER_UNLOCK_REP && Math.random() < ORDER_CHANCE) letter = rollOrderLetter({ ...src, rep });
@@ -1207,6 +1310,10 @@ export default function BoneAndGlass() {
       moonReport: false, // 満月報告は当日の朝のみ。翌朝クリア(消化フラグ moonReportDone は保持)
       inv: rescueInv, kaniRescue, kaniRescueDone: src.kaniRescueDone || kaniRescue,
       monthly, monthEarn, monthSold, bestMonthEarn,
+      orderMissTotal, lastOrderMissDay,
+      supplyBoughtToday: 0, // 古物市の当日購入数は毎朝リセット
+      // 見習いを休ませた日が続くと伸びる(雇っていた日・解禁前は0に戻る)
+      apprenticeOffStreak: src.apprenticeSeen && !src.apprentice ? (src.apprenticeOffStreak || 0) + 1 : 0,
     };
     // 大家の依頼: 4品すべて倉庫に揃った朝は自動で開く。揃っていなければ畳む。
     setOoyaCardOpen(ooyaOrderReady(ng));
@@ -1287,7 +1394,8 @@ export default function BoneAndGlass() {
     const cust = CUSTOMERS.find((c) => c.id === o.client);
     const custBought = { ...g.custBought, [o.client]: (g.custBought[o.client] || 0) + o.qty };
     // 報酬入金・評判+2・常連度に加算。soldByCat(通り名)には数えない
-    setG({ ...g, spec, order: null, gold: g.gold + o.reward, rep: g.rep + 2, custBought });
+    setG({ ...g, spec, order: null, gold: g.gold + o.reward, rep: g.rep + 2, custBought,
+      orderDoneTotal: (g.orderDoneTotal || 0) + 1 }); // 達成の記録(うわさ#10)
     flash(`${cust ? cust.name : ""}に ${SPECIMENS[o.specId].name}×${o.qty} を届けた。${o.reward}G を受け取った。`);
   };
 

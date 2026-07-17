@@ -575,6 +575,34 @@ export const RUMORS = {
 };
 export const RUMOR_CHANCE = 0.08; // passした客が噂を落とす確率
 
+// ---------- うわさ(風聞) ----------
+// 客の来店セリフ(buy/browse/pass問わず)の直前判定で、低確率で「うわさ」がセリフの代わりに出る。
+// 一晩最大1回。銘板の噂ヒント(RUMORS)とは独立・両立だが、同夜に両方は出ない(ヒント優先)。
+// 各うわさは条件を満たしている間だけ抽選対象。複数該当時はランダム1本。
+// 同じうわさは7日間は繰り返さない(直近表示日を gossipLast に記録)。
+// 話者は固定——その話者が来店した夜のみ発火し得る。噂番は下記4客層のみ
+// (若い研究者・蟲屋・大家・蒐集家は噂を言わない)。うわさはログ・図鑑に記録しない。
+export const GOSSIP_CHANCE = 0.03;
+export const GOSSIP_SPEAKERS = ["kifujin", "gakusei", "koujika", "gakusha"];
+export const GOSSIP = {
+  g1:  { cid: "kifujin", line: "あの店、儲かってるはずなのに、店構えは変わらないのね" },
+  g2:  { cid: "gakusei", line: "あの……この店、たまに羽音がするって、先輩が" },
+  g3:  { cid: "gakusha", line: "いい品だ。いい品だが、強気な値付けをする" },
+  g4:  { cid: "koujika", line: "虫食いを並べる店だと、市で噂になっていたよ" },
+  g5:  { cid: "gakusha", line: (cat) => `ここは${cat}ばかり売れると聞く。看板に偽りなしだ` },
+  // g6 は最多客層以外の噂番から抽選(話者別の文言・◯◯=最多客層名)
+  g6:  { lines: {
+    kifujin: (n) => `${n}がご贔屓なんですって? 良い客がついたものね`,
+    gakusei: (n) => `${n}がよく来るって聞いて、緊張してました`,
+    koujika: (n) => `${n}が通う店か。……見る目は確かなようだ`,
+    gakusha: (n) => `${n}が贔屓にしていると聞いた。なるほどな`,
+  } },
+  g7:  { cid: "koujika", line: "頼んだ物が届かなかった、という話を聞いたがね" },
+  g8:  { cid: "gakusei", line: "市場で見かけました。瓶、抱えるほど買ってましたよね" },
+  g9:  { cid: "koujika", line: "見習いの子、毎日店の前にいるじゃないか。……使ってやんなよ" },
+  g10: { cid: "kifujin", line: "知り合いが言っていましたわ。あの店は、頼んだ物を必ず届けてくれるって" },
+};
+
 // ---------- 通り名 ----------
 export const ALIASES = {
   bone:    { name: "骸骨堂", invite: ["gakusha"] },

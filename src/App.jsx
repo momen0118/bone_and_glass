@@ -2541,8 +2541,8 @@ export default function BoneAndGlass() {
                   <div style={{ letterSpacing: "0.25em", color: C.brass, fontSize: 13 }}>帳簿</div>
                   <button onClick={() => setShowLedger(false)} style={{ background: "none", border: "none", color: C.dim, cursor: "pointer", fontFamily: "inherit" }}>閉じる</button>
                 </div>
-                {/* ---- 1頁目: 月の頁(今日までの記録+直近4ヶ月。それより前は表示しない) ---- */}
-                {ledgerPage === 0 && (
+                {/* ---- 2頁目: 月の頁(今日までの記録+直近4ヶ月。それより前は表示しない) ---- */}
+                {ledgerPage === 1 && (
                   <div style={{ display: "flex", flexDirection: "column" }}>
                     {/* 先頭に進行中の月「今日までの記録」を常設(月が締まると◯ヶ月目の記録に確定する) */}
                     <div style={{ borderTop: `1px solid ${C.line}`, padding: "8px 2px" }}>
@@ -2579,8 +2579,8 @@ export default function BoneAndGlass() {
                     )}
                   </div>
                 )}
-                {/* ---- 2頁目: 集計欄(通算)。頁をめくって読む ---- */}
-                {ledgerPage === 1 && (
+                {/* ---- 1頁目: 今の記録(通算の集計欄) ---- */}
+                {ledgerPage === 0 && (
                   <div style={{ borderTop: `1px solid ${C.line}`, paddingTop: 10 }}>
                     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                       {tally.map(([k, v]) => (

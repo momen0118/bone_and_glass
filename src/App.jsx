@@ -2523,8 +2523,6 @@ export default function BoneAndGlass() {
           // データが無いときだけ ──。以前は同数タイを ── にしていたが、記録済みでも空に見える不具合だった。
           const [topCust] = maxEntry(custTally);
           const custName = (id) => (id === "saikushi" ? SAIKUSHI.name : (CUSTOMERS.find((c) => c.id === id) || {}).name) || "";
-          // 進行中の月の首位客層(月初スナップショットとの差分)。締まった月は record.topCust を使う
-          const liveTopCust = topCustBetween(g.soldByCust, g.monthCustBase);
           const months = [...(g.monthly || [])].reverse().slice(0, 4); // 新しい順・直近4ヶ月まで(それより前は表示しない)
           const tally = [
             ["一番売った品", topItem ? SPECIMENS[topItem].name : "──"],
@@ -2541,23 +2539,9 @@ export default function BoneAndGlass() {
                   <div style={{ letterSpacing: "0.25em", color: C.brass, fontSize: 13 }}>帳簿</div>
                   <button onClick={() => setShowLedger(false)} style={{ background: "none", border: "none", color: C.dim, cursor: "pointer", fontFamily: "inherit" }}>閉じる</button>
                 </div>
-                {/* ---- 2頁目: 月の頁(今日までの記録+直近4ヶ月。それより前は表示しない) ---- */}
+                {/* ---- 2頁目: 月の頁(直近4ヶ月のみ。それより前は表示しない) ---- */}
                 {ledgerPage === 1 && (
                   <div style={{ display: "flex", flexDirection: "column" }}>
-                    {/* 先頭に進行中の月「今日までの記録」を常設(月が締まると◯ヶ月目の記録に確定する) */}
-                    <div style={{ borderTop: `1px solid ${C.line}`, padding: "8px 2px" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 13 }}>
-                        <span style={{ color: C.brass }}>今日までの記録</span>
-                        <span style={{ fontVariantNumeric: "tabular-nums" }}>売上 {g.monthEarn || 0}G</span>
-                      </div>
-                      <div style={{ fontSize: 12, color: C.dim, marginTop: 2 }}>
-                        販売 {g.monthSold || 0}点 · 評判 {g.rep} · {g.alias ? `『${ALIASES[g.alias].name}』` : "──"}
-                        {liveTopCust ? ` · 贔屓 ${custName(liveTopCust)}` : ""}
-                      </div>
-                      {liveTopCust && LEDGER_TITLES[liveTopCust] && (
-                        <div style={{ fontSize: 12, color: C.dim, marginTop: 1 }}>{LEDGER_TITLES[liveTopCust]}</div>
-                      )}
-                    </div>
                     {months.map((r) => (
                       <div key={r.m} style={{ borderTop: `1px solid ${C.line}`, padding: "8px 2px" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 13 }}>

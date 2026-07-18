@@ -1089,6 +1089,7 @@ export default function BoneAndGlass() {
   const [bookTab, setBookTab] = useState("spec");
   const [bookDetail, setBookDetail] = useState(null); // 図鑑の詳細ビュー(発見済み標本ID)
   const [showLedger, setShowLedger] = useState(false); // 帳簿(店史)モーダル
+  const [ledgerPage, setLedgerPage] = useState(0); // 帳簿の頁(0=月の頁 / 1=集計欄。開くたび月の頁から)
   const [showDecor, setShowDecor] = useState(false);
   const [toast, setToast] = useState(null);
   const toastTimer = useRef(null); // 表示タイマー(差し替え時にリセット)
@@ -2524,7 +2525,7 @@ export default function BoneAndGlass() {
           const custName = (id) => (id === "saikushi" ? SAIKUSHI.name : (CUSTOMERS.find((c) => c.id === id) || {}).name) || "";
           // 進行中の月の首位客層(月初スナップショットとの差分)。締まった月は record.topCust を使う
           const liveTopCust = topCustBetween(g.soldByCust, g.monthCustBase);
-          const months = [...(g.monthly || [])].reverse(); // 新しい順
+          const months = [...(g.monthly || [])].reverse().slice(0, 4); // 新しい順・直近4ヶ月まで(それより前は表示しない)
           const tally = [
             ["一番売った品", topItem ? SPECIMENS[topItem].name : "──"],
             ["一番売った分類", topCat ? CAT_NAME[topCat] : "──"],
@@ -2540,53 +2541,66 @@ export default function BoneAndGlass() {
                   <div style={{ letterSpacing: "0.25em", color: C.brass, fontSize: 13 }}>帳簿</div>
                   <button onClick={() => setShowLedger(false)} style={{ background: "none", border: "none", color: C.dim, cursor: "pointer", fontFamily: "inherit" }}>閉じる</button>
                 </div>
-                {/* 月ごとの頁(歴代の月次記録・新しい順)。旧セーブは末尾(記録の始まりより前)に喪失の一行 */}
-                <div style={{ display: "flex", flexDirection: "column" }}>
-                  {/* 先頭に進行中の月「今日までの記録」を常設(月が締まると◯ヶ月目の記録に確定する) */}
-                  <div style={{ borderTop: `1px solid ${C.line}`, padding: "8px 2px" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 13 }}>
-                      <span style={{ color: C.brass }}>今日までの記録</span>
-                      <span style={{ fontVariantNumeric: "tabular-nums" }}>売上 {g.monthEarn || 0}G</span>
-                    </div>
-                    <div style={{ fontSize: 12, color: C.dim, marginTop: 2 }}>
-                      販売 {g.monthSold || 0}点 · 評判 {g.rep} · {g.alias ? `『${ALIASES[g.alias].name}』` : "──"}
-                      {liveTopCust ? ` · 贔屓 ${custName(liveTopCust)}` : ""}
-                    </div>
-                    {liveTopCust && LEDGER_TITLES[liveTopCust] && (
-                      <div style={{ fontSize: 12, color: C.dim, marginTop: 1 }}>{LEDGER_TITLES[liveTopCust]}</div>
-                    )}
-                  </div>
-                  {months.map((r) => (
-                    <div key={r.m} style={{ borderTop: `1px solid ${C.line}`, padding: "8px 2px" }}>
+                {/* ---- 1頁目: 月の頁(今日までの記録+直近4ヶ月。それより前は表示しない) ---- */}
+                {ledgerPage === 0 && (
+                  <div style={{ display: "flex", flexDirection: "column" }}>
+                    {/* 先頭に進行中の月「今日までの記録」を常設(月が締まると◯ヶ月目の記録に確定する) */}
+                    <div style={{ borderTop: `1px solid ${C.line}`, padding: "8px 2px" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 13 }}>
-                        <span style={{ color: C.brass }}>{r.m}ヶ月目</span>
-                        <span style={{ fontVariantNumeric: "tabular-nums" }}>売上 {r.earn}G</span>
+                        <span style={{ color: C.brass }}>今日までの記録</span>
+                        <span style={{ fontVariantNumeric: "tabular-nums" }}>売上 {g.monthEarn || 0}G</span>
                       </div>
                       <div style={{ fontSize: 12, color: C.dim, marginTop: 2 }}>
-                        販売 {r.sold}点 · 評判 {r.rep} · {r.alias ? `『${ALIASES[r.alias].name}』` : "──"}
-                        {r.topCust ? ` · 贔屓 ${custName(r.topCust)}` : ""}
+                        販売 {g.monthSold || 0}点 · 評判 {g.rep} · {g.alias ? `『${ALIASES[g.alias].name}』` : "──"}
+                        {liveTopCust ? ` · 贔屓 ${custName(liveTopCust)}` : ""}
                       </div>
-                      {r.topCust && LEDGER_TITLES[r.topCust] && (
-                        <div style={{ fontSize: 12, color: C.dim, marginTop: 1 }}>{LEDGER_TITLES[r.topCust]}</div>
+                      {liveTopCust && LEDGER_TITLES[liveTopCust] && (
+                        <div style={{ fontSize: 12, color: C.dim, marginTop: 1 }}>{LEDGER_TITLES[liveTopCust]}</div>
                       )}
                     </div>
-                  ))}
-                  {g.historyLost && (
-                    <div style={{ borderTop: `1px solid ${C.line}`, padding: "8px 2px", fontSize: 12, color: C.dim, lineHeight: 1.8 }}>{LEDGER_LOST}</div>
-                  )}
-                </div>
-                {/* 集計欄 */}
-                <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 4, paddingTop: 10 }}>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    {tally.map(([k, v]) => (
-                      <div key={k} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12, fontSize: 13 }}>
-                        <span style={{ color: C.dim, fontSize: 12, whiteSpace: "nowrap" }}>{k}</span>
-                        <span style={{ textAlign: "right" }}>{v}</span>
+                    {months.map((r) => (
+                      <div key={r.m} style={{ borderTop: `1px solid ${C.line}`, padding: "8px 2px" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 13 }}>
+                          <span style={{ color: C.brass }}>{r.m}ヶ月目</span>
+                          <span style={{ fontVariantNumeric: "tabular-nums" }}>売上 {r.earn}G</span>
+                        </div>
+                        <div style={{ fontSize: 12, color: C.dim, marginTop: 2 }}>
+                          販売 {r.sold}点 · 評判 {r.rep} · {r.alias ? `『${ALIASES[r.alias].name}』` : "──"}
+                          {r.topCust ? ` · 贔屓 ${custName(r.topCust)}` : ""}
+                        </div>
+                        {r.topCust && LEDGER_TITLES[r.topCust] && (
+                          <div style={{ fontSize: 12, color: C.dim, marginTop: 1 }}>{LEDGER_TITLES[r.topCust]}</div>
+                        )}
                       </div>
                     ))}
+                    {/* 喪失の一行は「記録の始まり」がこの頁に見えている間だけ(4ヶ月で切れた先には出さない) */}
+                    {g.historyLost && (g.monthly || []).length <= 4 && (
+                      <div style={{ borderTop: `1px solid ${C.line}`, padding: "8px 2px", fontSize: 12, color: C.dim, lineHeight: 1.8 }}>{LEDGER_LOST}</div>
+                    )}
                   </div>
-                  {/* 客層称号(通算の最多客層に応じて一行) */}
-                  {title && <div style={{ marginTop: 12, fontSize: 12, color: C.dim, lineHeight: 1.8 }}>{title}</div>}
+                )}
+                {/* ---- 2頁目: 集計欄(通算)。頁をめくって読む ---- */}
+                {ledgerPage === 1 && (
+                  <div style={{ borderTop: `1px solid ${C.line}`, paddingTop: 10 }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {tally.map(([k, v]) => (
+                        <div key={k} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12, fontSize: 13 }}>
+                          <span style={{ color: C.dim, fontSize: 12, whiteSpace: "nowrap" }}>{k}</span>
+                          <span style={{ textAlign: "right" }}>{v}</span>
+                        </div>
+                      ))}
+                    </div>
+                    {/* 客層称号(通算の最多客層に応じて一行) */}
+                    {title && <div style={{ marginTop: 12, fontSize: 12, color: C.dim, lineHeight: 1.8 }}>{title}</div>}
+                  </div>
+                )}
+                {/* 頁めくり(罫線の下・右端。帳簿らしく静かに) */}
+                <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 10, paddingTop: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontSize: 11, color: C.dim, fontVariantNumeric: "tabular-nums" }}>{ledgerPage + 1} / 2</span>
+                  <button onClick={() => setLedgerPage(ledgerPage === 0 ? 1 : 0)}
+                    style={{ fontFamily: "inherit", cursor: "pointer", fontSize: 12, color: C.brass, background: "none", border: "none", padding: "2px 0", letterSpacing: "0.05em" }}>
+                    {ledgerPage === 0 ? "頁をめくる ▸" : "◂ 頁を戻す"}
+                  </button>
                 </div>
               </div>
             </div>
@@ -2656,7 +2670,7 @@ export default function BoneAndGlass() {
         <div style={{ maxWidth: 560, margin: "0 auto", display: "flex", gap: 6, alignItems: "center" }}>
           <Btn onClick={() => { setBookTab("spec"); setBookDetail(null); setShowBook(true); }} style={FOOT_BTN}>図鑑</Btn>
           {/* 帳簿: 画廊ボタンの席に交代(画廊は廃止)。開店31日目以降、またはクリア後のいずれか早い方で出現 */}
-          {(g.day >= 31 || g.endingDone) && <Btn onClick={() => setShowLedger(true)} style={FOOT_BTN}>帳簿</Btn>}
+          {(g.day >= 31 || g.endingDone) && <Btn onClick={() => { setLedgerPage(0); setShowLedger(true); }} style={FOOT_BTN}>帳簿</Btn>}
           <Btn onClick={() => setShowDecor(true)} style={FOOT_BTN}>調度屋</Btn>
           {/* タイトルへの導線(全フェーズ)。文字色は一段薄く。記録は残す */}
           <Btn onClick={() => setToTitleConfirm(true)} style={{ ...FOOT_BTN, color: C.dim }}>タイトル</Btn>

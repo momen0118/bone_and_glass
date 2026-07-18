@@ -115,6 +115,7 @@ function newGame() {
     monthEarn: 0, monthSold: 0, // 今月(30日区切り)の売上・販売数(締めごとにリセット)
     soldByItem: {},           // 品別の通算販売数(標本ID → 数。soldByCatと同じ範囲を数える)
     soldByCust: {},           // 客層別の通算販売数(客ID → 数。soldByCatと同じ範囲を数える)
+    monthCustBase: {},        // 今月の起点での soldByCust スナップショット(月の首位客層を差分で出す)
     bestMonthEarn: 0,         // 最高月商(月の締めで更新)
     historyLost: false,       // 旧セーブ引き継ぎ(帳簿に「記録は失われている」を出す)
     // --- v8.1: うわさ(風聞)の条件追跡 ---
@@ -229,6 +230,8 @@ export function migrate(loaded) {
   g.soldByItem = loaded.soldByItem || {};
   g.soldByCust = loaded.soldByCust || {};
   g.bestMonthEarn = loaded.bestMonthEarn || 0;
+  // v8.7: 月の首位客層。旧セーブは今の soldByCust を起点にする(今月分は移行後から数える=遡らない)
+  g.monthCustBase = loaded.monthCustBase || { ...(loaded.soldByCust || {}) };
   // v8.1: うわさの条件追跡。旧セーブは今日から数え始める(過去分は遡らない)
   g.gossipLast = loaded.gossipLast || {};
   g.noCamphorDays = loaded.noCamphorDays || [];
@@ -422,6 +425,20 @@ function nextAlias(cur, soldByCat) {
     if (n > bestN) { best = cat; bestN = n; }
   }
   return best && bestN >= curN + 3 ? best : cur;
+}
+// 期間の首位客層(cur=通算soldByCust, base=期間起点のスナップショット)。差分で数え、若い研究者は学生に合算。
+// 販売が無ければ null。帳簿の「その月の一番売れた客層」と「今日までの記録」で共用。
+function topCustBetween(cur, base) {
+  const t = {};
+  for (const k of new Set([...Object.keys(cur || {}), ...Object.keys(base || {})])) {
+    const d = (cur[k] || 0) - ((base && base[k]) || 0);
+    if (d <= 0) continue;
+    const key = k === "wakate" ? "gakusei" : k;
+    t[key] = (t[key] || 0) + d;
+  }
+  let best = null, bestN = 0;
+  for (const [k, v] of Object.entries(t)) if (v > bestN) { best = k; bestN = v; }
+  return best;
 }
 function custLine(c, bought, kind) {
   const L = c.lines;
@@ -1384,13 +1401,16 @@ export default function BoneAndGlass() {
   const advanceDay = (extra = {}) => {
     const src = { ...g, ...extra };
     const day = src.day + 1;
-    // 店史: 月の締め(30日ごと)。その月の売上・販売数と、月末時点の評判・通り名を蓄積する
+    // 店史: 月の締め(30日ごと)。その月の売上・販売数・月末の評判/通り名/その月の首位客層を蓄積する
     let monthly = src.monthly || [], monthEarn = src.monthEarn || 0, monthSold = src.monthSold || 0,
-      bestMonthEarn = src.bestMonthEarn || 0;
+      bestMonthEarn = src.bestMonthEarn || 0, monthCustBase = src.monthCustBase || {};
     if (src.day % 30 === 0) {
-      monthly = [...monthly, { m: src.day / 30, earn: monthEarn, sold: monthSold, rep: src.rep, alias: src.alias }];
+      // その月の首位客層(月初スナップショットとの差分)。称号は表示側で topCust から引く
+      const topCust = topCustBetween(src.soldByCust, monthCustBase);
+      monthly = [...monthly, { m: src.day / 30, earn: monthEarn, sold: monthSold, rep: src.rep, alias: src.alias, topCust }];
       bestMonthEarn = Math.max(bestMonthEarn, monthEarn);
       monthEarn = 0; monthSold = 0;
+      monthCustBase = { ...(src.soldByCust || {}) }; // 次の月の起点を今の通算に更新
     }
     // 特注: 期限切れ判定(無断すっぽかし)。評判-4、かつ依頼人のcustBought -3(下限0)。ログは従来の一行のまま
     let order = src.order, rep = src.rep, orderExpired = false, letter = null, custBought = src.custBought;
@@ -1440,7 +1460,7 @@ export default function BoneAndGlass() {
       banshoMorning, banshoAlias: src.banshoAlias || banshoMorning,
       moonReport: false, // 満月報告は当日の朝のみ。翌朝クリア(消化フラグ moonReportDone は保持)
       inv: rescueInv, kaniRescue, kaniRescueDone: src.kaniRescueDone || kaniRescue,
-      monthly, monthEarn, monthSold, bestMonthEarn,
+      monthly, monthEarn, monthSold, bestMonthEarn, monthCustBase,
       orderMissTotal, lastOrderMissDay,
       supplyBoughtToday: 0, // 古物市の当日購入数は毎朝リセット
       // 見習いを休ませた日が続くと伸びる(雇っていた日・解禁前は0に戻る)
@@ -2502,6 +2522,8 @@ export default function BoneAndGlass() {
           // データが無いときだけ ──。以前は同数タイを ── にしていたが、記録済みでも空に見える不具合だった。
           const [topCust] = maxEntry(custTally);
           const custName = (id) => (id === "saikushi" ? SAIKUSHI.name : (CUSTOMERS.find((c) => c.id === id) || {}).name) || "";
+          // 進行中の月の首位客層(月初スナップショットとの差分)。締まった月は record.topCust を使う
+          const liveTopCust = topCustBetween(g.soldByCust, g.monthCustBase);
           const months = [...(g.monthly || [])].reverse(); // 新しい順
           const tally = [
             ["一番売った品", topItem ? SPECIMENS[topItem].name : "──"],
@@ -2528,7 +2550,11 @@ export default function BoneAndGlass() {
                     </div>
                     <div style={{ fontSize: 12, color: C.dim, marginTop: 2 }}>
                       販売 {g.monthSold || 0}点 · 評判 {g.rep} · {g.alias ? `『${ALIASES[g.alias].name}』` : "──"}
+                      {liveTopCust ? ` · 贔屓 ${custName(liveTopCust)}` : ""}
                     </div>
+                    {liveTopCust && LEDGER_TITLES[liveTopCust] && (
+                      <div style={{ fontSize: 12, color: C.dim, marginTop: 1 }}>{LEDGER_TITLES[liveTopCust]}</div>
+                    )}
                   </div>
                   {months.map((r) => (
                     <div key={r.m} style={{ borderTop: `1px solid ${C.line}`, padding: "8px 2px" }}>
@@ -2538,7 +2564,11 @@ export default function BoneAndGlass() {
                       </div>
                       <div style={{ fontSize: 12, color: C.dim, marginTop: 2 }}>
                         販売 {r.sold}点 · 評判 {r.rep} · {r.alias ? `『${ALIASES[r.alias].name}』` : "──"}
+                        {r.topCust ? ` · 贔屓 ${custName(r.topCust)}` : ""}
                       </div>
+                      {r.topCust && LEDGER_TITLES[r.topCust] && (
+                        <div style={{ fontSize: 12, color: C.dim, marginTop: 1 }}>{LEDGER_TITLES[r.topCust]}</div>
+                      )}
                     </div>
                   ))}
                   {g.historyLost && (
